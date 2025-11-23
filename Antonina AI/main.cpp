@@ -32,15 +32,15 @@ public:
     double* biases;
     double** weights;
     int weight_size;
-    int weight_len;
+   
 
     Layer(int _size, int _nextSize) {
         size = _size;
         neurons = new double[size];
         biases = new double[size];
-        weights = new double*[_nextSize];
-        for (int i = 0; i < _size; i++) {
-            weights[i] = new double[_nextSize];
+        weights = new double*[_size];
+        for (int i = 0; i < _nextSize; i++) {
+            weights[i] = new double[_size];
         }
         weight_size = _nextSize;
     }
@@ -76,10 +76,10 @@ public:
             int nextSize = 0;
             if (l < size - 1) nextSize = sizes[l + 1];
             layers[l] = Layer(sizes[l], nextSize);
-            for (int i = 0; i < sizes[l]; i++) { 
-                layers[l].biases[i] = rand_double(0.0, 1.0)*2.0 - 1.0;
+            for (int k = 0; k < sizes[l]; k++) { 
+                layers[l].biases[k] = rand_double(0.0, 1.0)*2.0 - 1.0;
                 for (int j = 0; j < nextSize; j++) {
-                    layers[l].weights[i][j] = rand_double(0.0, 1.0) * 2.0 - 1.0;
+                    layers[l].weights[j][k] = rand_double(0.0, 1.0) * 2.0 - 1.0;
                 }
             }
         }
@@ -98,81 +98,52 @@ public:
 
     double* feedForward(double* inputs, int n) {
         copy_array(n, inputs, layers[0].neurons);
-
-        for (int i = 1; i < layers_length; i++) {
-            Layer l = layers[i - 1];
-            Layer l1 = layers[i];
-            for (int j = 0; j < l1.size; j++) {
-                l1.neurons[j] = 0;
-                for (int k = 0; k < l.size; k++) {
-                    l1.neurons[j] += l.neurons[k] * l.weights[k][j];
-                }
-                l1.neurons[j] += l1.biases[j];
-                for (int ind = 0; ind < l1.size; ind++) {
-                    l1.neurons[j] = activation(l1.neurons[j]);
-                }
+        for (int L = 1; L < layers_length; L++) {
+            for (int j = 0; j < layers[L].size; j++) {
+                double z = solve_z(L, j);
+                layers[L].neurons[j] = activation(z);
             }
         }
         return layers[layers_length - 1].neurons;
     }
 
-    void backpropagation(double* targets) {
-        double* errors = new double[layers[layers_length - 1].size];
-        for (int i = 0; i < layers[layers_length - 1].size; i++) {
-            errors[i] = targets[i] - layers[layers_length - 1].neurons[i];
-        }
-        for (int k = layers_length - 2; k >= 0; k--) {
-            Layer l = layers[k];
-            Layer l1 = layers[k + 1];
-            double* errorsNext = new double[l.size];
-            double* gradients = new double[l1.size];
-            for (int i = 0; i < l1.size; i++) {
-                gradients[i] = errors[i] * dactivation(layers[k + 1].neurons[i]);
-                gradients[i] *= learningRate;
-            }
-            double** deltas = new double*[l.size];
-            for (int ind = 0; ind < l1.size; ind++) {
-                deltas[ind] = new double[l.size];
-            }
-            for (int i = 0; i < l1.size; i++) {
-                for (int j = 0; j < l.size; j++) {
-                    deltas[i][j] = gradients[i] * l.neurons[j];
-                }
-            }
-            for (int i = 0; i < l.size; i++) {
-                errorsNext[i] = 0;
-                for (int j = 0; j < l1.size; j++) {
-                    errorsNext[i] += l.weights[i][j] * errors[j];
-                }
-            }
-            errors = new double[l.size];
-            copy_array(l.size, errorsNext, errors);
-            double** weightsNew = new double*[l.weight_size];
-            for (int ind = 0; ind < l.size; ind++) {
-                weightsNew[ind] = new double[l.weight_size];
-            }
 
-            for (int i = 0; i < l1.size; i++) {
-                for (int j = 0; j < l.size; j++) {
-                    weightsNew[j][i] = l.weights[j][i] + deltas[i][j];
+    double solve_z(int L, int j) {
+        Layer l = layers[L - 1];
+        Layer l1 = layers[L];
+        l1.neurons[j] = 0;
+        for (int k = 0; k < l.size; k++) {
+            l1.neurons[j] += l.neurons[k] * l.weights[j][k];
+        }
+        l1.neurons[j] += l1.biases[j];
+        return l1.neurons[j];
+    }
+
+
+    void backpropagation(double* targets) {
+        double** costs = new double* [layers_length];
+        double** dcosts = new double* [layers_length];
+        for (int i = 0; i < layers_length; i++) {
+            costs[i] = new double[layers[i].size];
+            dcosts[i] = new double[layers[i].size];
+        }
+        copy_array(layers[layers_length - 1].size, layers[layers_length - 1].neurons, costs[layers_length - 1]);
+        for (int i = 0; i < layers[layers_length - 1].size; i++) {
+            costs[layers_length - 1][i] -= targets[i];
+            dcosts[layers_length - 1][i] = 2 * costs[layers_length - 1][i];
+            costs[layers_length - 1][i] *= costs[layers_length - 1][i];
+        }
+
+
+        for (int L = layers_length - 2; L >= 0; L--) {
+            for (int k = 0; k < layers[L].size; k++) {
+                dcosts[L][k] = 0;
+                for (int j = 0; j < layers[L+1].size; j++) {
+                    double z = solve_z(L+1, j);
+                    dcosts[L][k] += layers[L].weights[j][k] * dactivation(z) * dcosts[L + 1][j];
                 }
             }
-            l.weights = weightsNew;
-            for (int i = 0; i < l1.size; i++) {
-                l1.biases[i] += gradients[i];
-            }
-            for (int ind = 0; ind < l.size; ind++) {
-                 delete[] weightsNew[ind];
-            }
-            for (int ind = 0; ind < l1.size; ind++) {
-                delete[] deltas[ind];
-            }
-            //delete[] weightsNew;
-            delete[] errorsNext;
-            delete[] gradients;
-            //delete[] deltas;
         }
-        delete[] errors;
     }
 
     void deinit() {
@@ -184,13 +155,13 @@ int main() {
     double learning_rate = 0.001;
     int size = 2;
     int inputs_size = 2;
-    int sizes[2] = {inputs_size, 1 };
+    int sizes[2] = {inputs_size, 2 };
     Perceptron p(learning_rate, size, sizes);
     int inputs_length = 4;
     double inputs[4][2] = { {0, 0},{0,1},{1,0},{1,1} };
 
-    int output_size = 1;
-    double targets[4][1] = { {0}, {0}, {0}, {1} };
+    int output_size = 2;
+    double targets[4][2] = { {1, 0}, {1, 0}, {1, 0}, {0, 1} };
 
     
 
