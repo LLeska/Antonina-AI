@@ -205,14 +205,14 @@ int main() {
     double inputs[4][2] = { {0, 0},{0,1},{1,0},{1,1} };
 
     int output_size = 2;
-    double targets[4][2] = { {1, 0}, {0, 1}, {0, 1}, {0, 1} };
+    double targets[4][2] = { {1, 0}, {1, 0}, {1, 0}, {0, 1} };
 
 
 
     unsigned int epochs = 1000000;
     double* outputs;
     for (unsigned int num = 0; num < epochs; num++) {
-        if (num == 0 || num == epochs-1) {
+        if (num == 0 || num == epochs - 1) {
             cout << num << '\n';
         }
         //cout << num << '\n';
