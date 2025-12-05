@@ -1,17 +1,24 @@
 #include "Perceptron.h"
-#include "Layer.h"
 #include <random>
-#include <chrono>
-#include <fstream>
-#include <string>
 #include <iostream>
+#include <chrono>
 
+double EPSILON_ = 0.1;
+double NOT_MUTAHION_ = 0.2;
 
-double Perceptron::rand_double(double min, double max) {
+template<typename T>
+T Perceptron::random_in_range(T a, T b) {
     static std::random_device rd;
     static std::mt19937 gen(rd());
-    std::uniform_real_distribution<double> dis(min, max);
-    return dis(gen);
+
+    if constexpr (std::is_integral_v<T>) {
+        std::uniform_int_distribution<T> dist(a, b);
+        return dist(gen);
+    }
+    else if constexpr (std::is_floating_point_v<T>) {
+        std::uniform_real_distribution<T> dist(a, b);
+        return dist(gen);
+    }
 }
 
 double Perceptron::activation(double x) {
@@ -22,7 +29,7 @@ double Perceptron::dactivation(double y) {
     return y * (1.0 - y);
 }
 
-double Perceptron::solve_z(int L, int j) {
+double Perceptron::solveZ(int L, int j) {
     Layer& prev_layer = layers[L - 1];
     Layer& curr_layer = layers[L];
     double z = 0.0;
@@ -39,57 +46,100 @@ double Perceptron::solve_z(int L, int j) {
 
 
 template <typename T>
-void Perceptron::copy_array(int n, T* array_source, T* array_destination) {
+void Perceptron::copyArray(int n, T* array_source, T* array_destination) {
     for (int i = 0; i < n; i++) {
         array_destination[i] = array_source[i];
     }
 }
 
 Perceptron::Perceptron() {
+    EPSILON = EPSILON_;
+    NOT_MUTAHION = NOT_MUTAHION_;
     learningRate = 0;
-    layers_length = 0;
+    length = 0;
     layers = nullptr;
 }
 
+Perceptron::Perceptron(Perceptron& p) {
+    EPSILON = EPSILON_;
+    NOT_MUTAHION = NOT_MUTAHION_;
+    learningRate = p.learningRate;
+    length = p.length;
+    layers = new Layer[length];
+    for (int i = 0; i < length; i++) {
+        layers[i] = p.layers[i];
+    }
+}
 
-Perceptron::Perceptron(double learningRate_, int layers_length_, int* sizes) {
+Perceptron::Perceptron(double learningRate_, int length_, int* sizes) {
+    EPSILON = EPSILON_;
+    NOT_MUTAHION = NOT_MUTAHION_;
     learningRate = learningRate_;
-    layers_length = layers_length_;
-    layers = new Layer[layers_length_];
-    for (int l = 0; l < layers_length_; l++) {
+    length = length_;
+    layers = new Layer[length];
+    for (int l = 0; l < length; l++) {
         int nextSize = 0;
-        if (l < layers_length_ - 1) {
+        if (l < length - 1) {
             nextSize = sizes[l + 1];
         }
         layers[l] = Layer(sizes[l], nextSize);
         if (nextSize > 0 && layers[l].biases && layers[l].weights) {
             for (int j = 0; j < nextSize; j++) {
-                layers[l].biases[j] = rand_double(-1.0, 1.0);
+                layers[l].biases[j] = random_in_range(-1.0, 1.0);
                 for (int k = 0; k < sizes[l]; k++) {
-                    layers[l].weights[j][k] = rand_double(-1.0, 1.0);
+                    layers[l].weights[j][k] = random_in_range(-1.0, 1.0);
                 }
             }
         }
     }
 }
 
+Perceptron::Perceptron(Perceptron* p1, Perceptron* p2) {
+    learningRate = p1->learningRate;
+    length = p1->length;
+    layers = new Layer[length];
+    for (int i = 0; i < length; i++) {
+        if (random_in_range(0.0, 1.0) > 0.5) {
+            layers[i] = p1->layers[i];
+        }
+        else {
+            layers[i] = p2->layers[i];
+        }
+    }
+    if (random_in_range(0.0, 1.0) > NOT_MUTAHION) {
+        double* tar = new double[layers[length - 1].size];
+        for (int i = 0; i < layers[length - 1].size; i++) {
+            tar[i] = random_in_range(0.0, 1.0)*EPSILON;
+        }
+        backpropagation(tar);
+    }
+}
 
-double* Perceptron::feedForward(double* inputs, int n) {
-    copy_array(n, inputs, layers[0].neurons);
+int Perceptron::getOut() {
+    int maxi = 0;
+    for (int i = 1; i < layers[length - 1].size; i++) {
+        if (layers[length - 1].neurons[maxi] < layers[length - 1].neurons[0]) {
+            maxi = i;
+        }
+    }
+    return maxi;
+}
 
-    for (int L = 1; L < layers_length; L++) {
+void Perceptron::feedForward(double* inputs) {
+    copyArray(layers[0].size, inputs, layers[0].neurons);
+
+    for (int L = 1; L < length; L++) {
         for (int j = 0; j < layers[L].size; j++) {
-            double z = solve_z(L, j);
+            double z = solveZ(L, j);
             layers[L].neurons[j] = activation(z);
         }
     }
-    return layers[layers_length - 1].neurons;
 }
 
 void Perceptron::backpropagation(double* targets) {
-    int last = layers_length - 1;
-    double** deltas = new double* [layers_length];
-    for (int i = 0; i < layers_length; i++) {
+    int last = length - 1;
+    double** deltas = new double* [length];
+    for (int i = 0; i < length; i++) {
         deltas[i] = new double[layers[i].size]();
     }
     for (int j = 0; j < layers[last].size; j++) {
@@ -109,7 +159,7 @@ void Perceptron::backpropagation(double* targets) {
             deltas[L][k] = error * dactivation(curr.neurons[k]);
         }
     }
-    for (int L = 0; L < layers_length - 1; L++) {
+    for (int L = 0; L < length - 1; L++) {
         Layer& curr = layers[L];
         Layer& next = layers[L + 1];
         for (int j = 0; j < next.size; j++) {
@@ -119,43 +169,54 @@ void Perceptron::backpropagation(double* targets) {
             curr.biases[j] += learningRate * deltas[L + 1][j];
         }
     }
-    for (int i = 0; i < layers_length; i++) {
+    for (int i = 0; i < length; i++) {
         delete[] deltas[i];
     }
     delete[] deltas;
 }
 
-void Perceptron::deinit() {
+Perceptron::~Perceptron() {
+    deInit();
+}
+
+void Perceptron::deInit() {
     if (layers) {
-        for (int i = 0; i < layers_length; i++) {
-            layers[i].deinit();
+        for (int i = 0; i < length; i++) {
+            layers[i].deInit();
         }
         delete[] layers;
         layers = nullptr;
     }
 }
 
-void Perceptron::readFromFile(std::string file) {
-    std::ifstream fin(file, std::ios::in);
-    if (!fin.is_open()) {
+void Perceptron::readFromFile(std::ifstream* fin) {
+    if (!fin->is_open()) {
         std::cerr << "Ошибка открытия файла" << std::endl;
         return;
     }
-    this->deinit();
-    fin >>learningRate >> layers_length;
-    layers = new Layer[layers_length];
-    for (int i = 0; i < layers_length; i++) {
-        layers[i].readFromFile(&fin);
+    this->deInit();
+    *fin >> learningRate >> length;
+    layers = new Layer[length];
+    for (int i = 0; i < length; i++) {
+        layers[i].readFromFile(fin);
     }
+}
 
+void Perceptron::writeInFile(std::ofstream* fout) {
+    *fout << learningRate << ' ' << length << '\n';
+    for (int i = 0; i < length; i++) {
+        layers[i].writeInFile(fout);
+    }
+}
+
+void Perceptron::readFromFile(std::string file) {
+    std::ifstream fin(file, std::ios::in);
+    readFromFile(&fin);
     fin.close();
 }
 
 void Perceptron::writeInFile(std::string file) {
     std::ofstream fout(file, std::ios::out);
-    fout << learningRate << ' ' << layers_length << '\n';
-    for (int i = 0; i < layers_length; i++) {
-        layers[i].writeInFile(&fout);
-    }
+    writeInFile(&fout);
     fout.close();
 }

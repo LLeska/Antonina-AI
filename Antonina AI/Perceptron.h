@@ -1,5 +1,6 @@
 #pragma once
 #include "Layer.h"
+#include <fstream>
 #include <string>
 
 
@@ -8,24 +9,36 @@ class Perceptron
 private:
     double learningRate;
     Layer* layers;
-    int layers_length;
+    int length;
+    double EPSILON;
+    double NOT_MUTAHION;
 
-    double rand_double(double min, double max);
+    template<typename T>
+    T random_in_range(T a, T b);
 
     double activation(double x);
 
     double dactivation(double y);
 
-    double solve_z(int L, int j);
+    double solveZ(int L, int j);
 
     template <typename T>
-    void copy_array(int n, T* array_source, T* array_destination);
+    void copyArray(int n, T* array_source, T* array_destination);
 public:    
+
     Perceptron(double learningRate_, int layers_length_, int* sizes);
 
     Perceptron();
 
-    double* feedForward(double* inputs, int n);
+    Perceptron(Perceptron& p);
+
+    ~Perceptron();
+
+    Perceptron(Perceptron* p1, Perceptron* p2);
+
+    void feedForward(double* inputs);
+
+    int getOut();
 
     void backpropagation(double* targets);
 
@@ -33,6 +46,10 @@ public:
 
     void writeInFile(std::string file);
 
-    void deinit();
+    void readFromFile(std::ifstream* fin);
+
+    void writeInFile(std::ofstream* fout);
+
+    void deInit();
 };
 

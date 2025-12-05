@@ -1,8 +1,12 @@
 #include "Layer.h"
 #include <fstream>    
+
 Layer::Layer() {
+    size = 0;
     nextSize = 0;
     neurons = nullptr;
+    biases = nullptr;
+    weights = nullptr;
 }
 
 Layer::Layer(int _size, int _nextSize) {
@@ -10,17 +14,45 @@ Layer::Layer(int _size, int _nextSize) {
     nextSize = _nextSize;
     neurons = new double[size]();
 
-    if (_nextSize > 0) {
-        biases = new double[_nextSize];
-        weights = new double* [_nextSize];
-        for (int i = 0; i < _nextSize; i++) {
+    if (nextSize > 0) {
+        biases = new double[nextSize];
+        weights = new double* [nextSize];
+        for (int i = 0; i < nextSize; i++) {
             weights[i] = new double[size];
         }
+    }
+    else {
+        biases = nullptr;
+        weights = nullptr;
+    }
+}
+
+Layer::Layer(Layer& l) {
+    size = l.size;
+    nextSize = l.nextSize;
+    neurons = new double[size]();
+    for (int i = 0; i < nextSize; i++) {
+        neurons[i] = l.neurons[i];
+    }
+    if (nextSize > 0) {
+        biases = new double[nextSize];
+        weights = new double* [nextSize];
+        for (int i = 0; i < nextSize; i++) {
+            weights[i] = new double[size];
+            biases[i] = l.biases[i];
+            for (int j = 0; j < size; j++) {
+                weights[i][j] = l.weights[i][j];
+            }
+        }
+    }
+    else {
+        biases = nullptr;
+        weights = nullptr;
     }
 }
 
 void Layer::readFromFile(std::ifstream* fin) {
-    this->deinit();
+    this->deInit();
     *fin >> size >> nextSize;
     neurons = new double[size]();
     if (nextSize > 0) {
@@ -69,7 +101,7 @@ void Layer::writeInFile(std::ofstream* fout) {
     }
 }
 
-void Layer::deinit() {
+void Layer::deInit() {
     if (neurons && neurons != nullptr) {
         delete[] neurons;
         neurons = nullptr;
@@ -88,4 +120,8 @@ void Layer::deinit() {
             weights = nullptr;
         }
     }
+}
+
+Layer::~Layer() {
+    deInit();
 }

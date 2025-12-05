@@ -13,10 +13,14 @@ public:
 
     Layer(int _size, int _nextSize);
 
+    Layer(Layer& l);
+
     void readFromFile(std::ifstream* fin);
 
     void writeInFile(std::ofstream* fout);
+    
+    void deInit();
 
-    void deinit();
+    ~Layer();
 };
 
