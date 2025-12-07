@@ -1,0 +1,55 @@
+#####	Starting new Antonina runs!
+#####	STEPS_LIMIT=20	N_TESTS=50
+#####	Starting Test 00...
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#####	Test 00: winrate=8% av.steps=1 score=7
+#####	All done!

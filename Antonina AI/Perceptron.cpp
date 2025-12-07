@@ -61,13 +61,18 @@ Perceptron::Perceptron() {
 }
 
 Perceptron::Perceptron(Perceptron& p) {
-    EPSILON = EPSILON_;
-    NOT_MUTAHION = NOT_MUTAHION_;
+    EPSILON = p.EPSILON;
+    NOT_MUTAHION = p.NOT_MUTAHION;
     learningRate = p.learningRate;
     length = p.length;
-    layers = new Layer[length];
-    for (int i = 0; i < length; i++) {
-        layers[i] = p.layers[i];
+    if (p.layers != nullptr && length > 0) {
+        layers = new Layer[length];
+        for (int i = 0; i < length; i++) {
+            layers[i] = p.layers[i];
+        }
+    }
+    else {
+        layers = nullptr;
     }
 }
 
@@ -89,51 +94,31 @@ Perceptron::Perceptron(double learningRate_, int length_, int* sizes) {
                 for (int k = 0; k < sizes[l]; k++) {
                     layers[l].weights[j][k] = random_in_range(-1.0, 1.0);
                 }
-            }
+            }  
         }
     }
 }
 
-Perceptron::Perceptron(Perceptron* p1, Perceptron* p2) {
-    learningRate = p1->learningRate;
-    length = p1->length;
-    layers = new Layer[length];
-    for (int i = 0; i < length; i++) {
-        if (random_in_range(0.0, 1.0) > 0.5) {
-            layers[i] = p1->layers[i];
-        }
-        else {
-            layers[i] = p2->layers[i];
+Perceptron& Perceptron::operator=(const Perceptron& p) {
+    if (this == &p) {
+        return *this;
+    }
+    deInit();
+    EPSILON = p.EPSILON;
+    NOT_MUTAHION = p.NOT_MUTAHION;
+    learningRate = p.learningRate;
+    length = p.length;
+    if (p.layers && length > 0) {
+        layers = new Layer[length];
+        for (int i = 0; i < length; i++) {
+            layers[i] = p.layers[i];
         }
     }
-    if (random_in_range(0.0, 1.0) > NOT_MUTAHION) {
-        double* tar = new double[layers[length - 1].size];
-        for (int i = 0; i < layers[length - 1].size; i++) {
-            tar[i] = random_in_range(0.0, 1.0)*EPSILON;
-        }
-        backpropagation(tar);
+    else {
+        layers = nullptr;
     }
-}
+    return *this;
 
-int Perceptron::getOut() {
-    int maxi = 0;
-    for (int i = 1; i < layers[length - 1].size; i++) {
-        if (layers[length - 1].neurons[maxi] < layers[length - 1].neurons[0]) {
-            maxi = i;
-        }
-    }
-    return maxi;
-}
-
-void Perceptron::feedForward(double* inputs) {
-    copyArray(layers[0].size, inputs, layers[0].neurons);
-
-    for (int L = 1; L < length; L++) {
-        for (int j = 0; j < layers[L].size; j++) {
-            double z = solveZ(L, j);
-            layers[L].neurons[j] = activation(z);
-        }
-    }
 }
 
 void Perceptron::backpropagation(double* targets) {
@@ -174,6 +159,57 @@ void Perceptron::backpropagation(double* targets) {
     }
     delete[] deltas;
 }
+
+Perceptron::Perceptron(Perceptron* p1, Perceptron* p2) {
+    learningRate = p1->learningRate;
+    length = p1->length;
+    layers = new Layer[length];
+    for (int i = 0; i < length; i++) {
+        if (random_in_range(0.0, 1.0) > 0.5) {
+            layers[i] = p1->layers[i];
+        }
+        else {
+            layers[i] = p2->layers[i];
+        }
+    }
+    if (random_in_range(0.0, 1.0) > NOT_MUTAHION) {
+        double* tar = new double[layers[length - 1].size];
+        for (int i = 0; i < layers[length - 1].size; i++) {
+            tar[i] = random_in_range(0.0, 1.0)*EPSILON;
+        }
+        backpropagation(tar);
+        delete[] tar;
+    }
+}
+
+int Perceptron::getOut() {
+    int maxi = 0;
+    for (int i = 1; i < layers[length - 1].size; i++) {
+        if (layers[length - 1].neurons[maxi] < layers[length - 1].neurons[0]) {
+            maxi = i;
+        }
+    }
+    return maxi;
+}
+
+void Perceptron::feedForward(double* inputs) {
+    copyArray(layers[0].size, inputs, layers[0].neurons);
+
+    for (int L = 1; L < length; L++) {
+        for (int j = 0; j < layers[L].size; j++) {
+            double z = solveZ(L, j);
+            layers[L].neurons[j] = activation(z);
+        }
+    }
+}
+
+bool Perceptron::isInitialized() {
+    if (layers == nullptr) {
+        return false;
+    }
+    return true;
+}
+
 
 Perceptron::~Perceptron() {
     deInit();

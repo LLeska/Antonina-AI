@@ -7,10 +7,10 @@ class AntoninaAPI
 private:
 	std::ofstream logfile;
 	//		      YOU CAN SET THESE CONSTS WHILE DEBUGING
-	const int TIME_TO_SLEEP = 500;					//  <======== Animation delay (ms)
+	const int TIME_TO_SLEEP = 0;					//  <======== Animation delay (ms)
 	const bool PRINT_STEPS = true;					//  <======== Enable / disable animation
-	const int STEPS_LIMIT = 100;					//  <======== Steps limit for each run
-	const int N_TESTS = 20;
+	const int STEPS_LIMIT = 20;					//  <======== Steps limit for each run
+	const int N_TESTS = 100;
 	void ClearLab(char lab[][8]);
 	void PrintLab(char lab[][8]);
 	bool MakeLab(char lab[][8], int ax, int ay, int Ox, int Oy, int gx, int gy, int rn, int rx[], int ry[]);

@@ -27,11 +27,11 @@ Layer::Layer(int _size, int _nextSize) {
     }
 }
 
-Layer::Layer(Layer& l) {
+Layer::Layer(const Layer& l) {
     size = l.size;
     nextSize = l.nextSize;
     neurons = new double[size]();
-    for (int i = 0; i < nextSize; i++) {
+    for (int i = 0; i < size; i++) {
         neurons[i] = l.neurons[i];
     }
     if (nextSize > 0) {
@@ -49,6 +49,37 @@ Layer::Layer(Layer& l) {
         biases = nullptr;
         weights = nullptr;
     }
+}
+
+Layer& Layer::operator=(const Layer& l) {
+    if (this != &l) {
+        deInit();
+        size = l.size;
+        nextSize = l.nextSize;
+        if (size > 0) {
+            neurons = new double[size];
+            for (int i = 0; i < size; i++) {
+                neurons[i] = l.neurons[i];
+            }
+        }
+
+        if (nextSize > 0) {
+            biases = new double[nextSize];
+            weights = new double* [nextSize];
+            for (int i = 0; i < nextSize; i++) {
+                weights[i] = new double[size];
+                biases[i] = l.biases[i];
+                for (int j = 0; j < size; j++) {
+                    weights[i][j] = l.weights[i][j];
+                }
+            }
+        }
+        else {
+            biases = nullptr;
+            weights = nullptr;
+        }
+    }
+    return *this;
 }
 
 void Layer::readFromFile(std::ifstream* fin) {
@@ -102,17 +133,17 @@ void Layer::writeInFile(std::ofstream* fout) {
 }
 
 void Layer::deInit() {
-    if (neurons && neurons != nullptr) {
+    if (neurons != nullptr) {
         delete[] neurons;
         neurons = nullptr;
     }
     if (nextSize > 0)
     {
-        if (biases) {
+        if (biases != nullptr) {
             delete[] biases;
             biases = nullptr;
         }
-        if (weights) {
+        if (weights != nullptr) {
             for (int i = 0; i < nextSize; i++) {
                 delete[] weights[i];
             }

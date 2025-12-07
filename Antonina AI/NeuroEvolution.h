@@ -29,8 +29,6 @@ public:
 
 	NeuroEvolution(double learningRate_, int length_, int* sizes_, int parents_size_, int population_);
 
-	NeuroEvolution(NeuroEvolution& ne);
-
 	~NeuroEvolution();
 
 	void feedForward(double* state);

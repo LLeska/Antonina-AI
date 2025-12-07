@@ -13,7 +13,9 @@ public:
 
     Layer(int _size, int _nextSize);
 
-    Layer(Layer& l);
+    Layer(const Layer& l);
+
+    Layer& operator=(const Layer& other);
 
     void readFromFile(std::ifstream* fin);
 

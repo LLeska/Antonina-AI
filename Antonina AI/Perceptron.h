@@ -25,12 +25,15 @@ private:
     template <typename T>
     void copyArray(int n, T* array_source, T* array_destination);
 public:    
+    bool isInitialized();
 
     Perceptron(double learningRate_, int layers_length_, int* sizes);
 
     Perceptron();
 
     Perceptron(Perceptron& p);
+
+    Perceptron& operator=(const Perceptron& other);
 
     ~Perceptron();
 

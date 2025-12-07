@@ -22,7 +22,9 @@ char AntoninaAPI::Move(char map[][8], Perceptron* p) {
 			input[i + j] = (double) map[i][j];
 		}
 	}
+	
 	p->feedForward(input);
+	delete[] input;
 	switch(p->getOut()) {
 	case 0:
 		return 'u';
@@ -33,7 +35,7 @@ char AntoninaAPI::Move(char map[][8], Perceptron* p) {
 	case 3:
 		return 'l';
 	}
-	delete[] input;
+	
 }
 
 //	========================================= ! DO NOT TOUCH ! ==========================================
@@ -221,7 +223,7 @@ void AntoninaAPI::demonstrate(Perceptron* p)
 	wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
 	printf("Test 00: winrate=%d%% av.steps=%d score=%d\n", wr, as, score);
 	logfile << "#####\tTest 00: winrate=" << wr << "% av.steps=" << as << " score=" << score << "\n";
-
+	/*
 	//Test 01 	no line not at walls
 	logfile << "#####\tStarting Test 01...\n";
 	wins = 0; sum = 0;
@@ -525,7 +527,7 @@ void AntoninaAPI::demonstrate(Perceptron* p)
 	wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
 	printf("Test 13: winrate=%d%% av.steps=%d score=%d\n", wr, as, score);
 	logfile << "#####\tTest 13: winrate=" << wr << "% av.steps=" << as << " score=" << score << "\n";
-
+	*/
 	//end
 	cout << "Total score = " << totalscore << endl;
 	logfile << "#####\tAll done!\n";
@@ -561,7 +563,7 @@ int* AntoninaAPI::solveFitness(Perceptron** neuros, int population) {
 		}
 		score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
 		totalscore += score;
-		wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
+		wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;	/*
 		//Test 01 	no line not at walls
 		wins = 0; sum = 0;
 		for (int i = 0; i < N_TESTS; i++)
@@ -599,6 +601,7 @@ int* AntoninaAPI::solveFitness(Perceptron** neuros, int population) {
 		totalscore += score;
 		wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
 		//Test 03 	all in corners
+		/*
 		wins = 0; sum = 0;
 		for (int i = 0; i < N_TESTS; i++)
 		{
@@ -617,7 +620,7 @@ int* AntoninaAPI::solveFitness(Perceptron** neuros, int population) {
 		}
 		score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
 		totalscore += score;
-		wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
+		wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;/*
 		//Test 04 	at 1 line with 1 #
 		wins = 0; sum = 0;
 		for (int i = 0; i < N_TESTS; i++)
@@ -812,7 +815,7 @@ int* AntoninaAPI::solveFitness(Perceptron** neuros, int population) {
 		score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
 		totalscore += score;
 		wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
-
+		*/
 		//end
 		fitness[neur] = totalscore;
 	}
