@@ -12,7 +12,10 @@ int main() {
     int epochs = 10;
 
     AntoninaAPI environment;
-    for (int gen = 0; gen < generations; gen++) {
+    //environment.writeInFile();
+    int gen = 0;
+    while (true){
+        gen++;
         std::cout << gen << '\n';
         for (int epoch = 0; epoch < epochs; epoch++) {
             ne.setFitness(environment.solveFitness(ne.getNeuros(), population));
@@ -21,4 +24,5 @@ int main() {
         ne.writeInFile("models/gen_" + std::to_string(gen) + ".csv");
         //environment.demonstrate(ne.demonstrate());
     }
+    return 0;
 }
