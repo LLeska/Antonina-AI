@@ -207,15 +207,51 @@ void AntoninaAPI::writeInFile() {
 	int totalscore = 0;
 	//Test 00 	one line not at walls
 	std::ofstream fout("Test0.csv");
+	int n = 0;
+	for (int ax = 0; ax < 8; ax++) {
+		for (int ay = 0; ay < 8; ay++) {
+			for (int gy = 0; gy < 8; gy++) {
+				if (gy != ay) {
+					n++;
+					writeLab(&fout, ax, ay, ax, ay, ax, gy, 0);
+				}
+			}
+			for (int gx = 0; gx < 8; gx++) {
+				if (gx != ax) {
+					n++;
+					writeLab(&fout, ax, ay, ax, ay, gx, ay, 0);
+				}
+			}			
+		}
+	}
+	std::cout << n << '\n';
+	for (int ax = 0; ax < 8; ax++) {
+		for (int ay = 0; ay < 8; ay++) {
+			for (int gx = 0; gx < 8; gx++) {
+				if (gx != ax) {
+					for (int gy = 0; gy < 8; gy++) {
+						if (gy != ay) {
+							n++;
+							writeLab(&fout, ax, ay, ax, ay, gx, gy, 0);
+						}
+					}
+				}
+			}
+		}
+	}
+	std::cout << n << '\n';
 	for (int ax = 0; ax < 8; ax++) {
 		for (int ay = 0; ay < 8; ay++) {
 			for (int ox = 0; ox < 8; ox++) {
 				for (int oy = 0; oy < 8; oy++) {
-					for (int gx = 0; gx < 8; gx++) {
-						if (gx != ax && gx != ox) {
-							for (int gy = 0; gy < 8; gy++) {
-								if (gy != ay && gy != oy) {
-									writeLab(&fout, ax, ay, ox, oy, gx, gy, 0);
+					if (ax != ox && ay != oy) {
+						for (int gx = 0; gx < 8; gx++) {
+							if (gx != ax && gx != ox) {
+								for (int gy = 0; gy < 8; gy++) {
+									if (gy != ay && gy != oy) {
+										n++;
+										writeLab(&fout, ax, ay, ox, oy, gx, gy, 0);
+									}
 								}
 							}
 						}
@@ -223,7 +259,9 @@ void AntoninaAPI::writeInFile() {
 				}
 			}
 		}
-	}/*
+	}
+	std::cout << n << '\n';
+	/*
 	//Test 03 	all in corners
 	//Test 04 	at 1 line with 1 #
 	for (int i = 0; i < N_TESTS; i++)
@@ -732,8 +770,8 @@ int* AntoninaAPI::solveFitness(Perceptron** neuros, int population) {
 		//Test 00 	one line not at walls
 		wins = 0; sum = 0;
 		std::ifstream fin("Test0.csv");
-		for (int j = 0; j < 10; j++) {
-			for (int i = 0; i < 10; i++)
+		for (int j = 0; j < 128; j++) {//448
+			for (int i = 0; i < 7; i++)//343
 			{
 				int ax, ay, gx, gy, Ox, Oy, rn;
 				readLab(&fin, ax, ay, Ox, Oy, gx, gy, rn);

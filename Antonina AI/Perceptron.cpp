@@ -3,7 +3,7 @@
 #include <iostream>
 #include <chrono>
 
-double EPSILON_ = 0.1;
+double EPSILON_ = 0.5;
 double NOT_MUTAHION_ = 0.2;
 
 template<typename T>

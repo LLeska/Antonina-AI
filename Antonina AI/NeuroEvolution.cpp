@@ -79,6 +79,7 @@ NeuroEvolution::NeuroEvolution(double learningRate_, int length_, int* sizes_, i
 		neuros[i] = p;
 	}
 	clearFitness();
+	evolution();
 }
 
 NeuroEvolution::~NeuroEvolution() {

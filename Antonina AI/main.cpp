@@ -5,11 +5,11 @@
 
 
 int main() {
-    int* sizes = new int[6] { 64, 6, 50, 50, 50, 4 };
-    int population = 50;
-    NeuroEvolution ne(0.1, 6, sizes, 10, population);
+    int* sizes = new int[6] { 64, 20, 20, 20, 20, 4 };
+    int population = 100;
+    NeuroEvolution ne(0.2, 6, sizes, 4, population);
     int generations = 1000;
-    int epochs = 10;
+    int epochs = 1;// 896 4032 116928
 
     AntoninaAPI environment;
     //environment.writeInFile();
