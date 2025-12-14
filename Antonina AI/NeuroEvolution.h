@@ -51,6 +51,8 @@ public:
 
 	void writeInFile(std::ofstream* fout);
 
+	bool allEqual();
+
 	Perceptron* demonstrate();
 
 	void deinit();

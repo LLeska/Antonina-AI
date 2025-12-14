@@ -3,8 +3,8 @@
 #include <iostream>
 #include <chrono>
 
-double EPSILON_ = 0.5;
-double NOT_MUTAHION_ = 0.2;
+double EPSILON_ = 1;
+double NOT_MUTAHION_ = 0.05;
 
 template<typename T>
 T Perceptron::random_in_range(T a, T b) {
@@ -164,6 +164,8 @@ Perceptron::Perceptron(Perceptron* p1, Perceptron* p2) {
     learningRate = p1->learningRate;
     length = p1->length;
     layers = new Layer[length];
+    EPSILON = EPSILON_;
+    NOT_MUTAHION = NOT_MUTAHION_;
     for (int i = 0; i < length; i++) {
         if (random_in_range(0.0, 1.0) > 0.5) {
             layers[i] = p1->layers[i];
@@ -172,20 +174,18 @@ Perceptron::Perceptron(Perceptron* p1, Perceptron* p2) {
             layers[i] = p2->layers[i];
         }
     }
-    if (random_in_range(0.0, 1.0) > NOT_MUTAHION) {
-        double* tar = new double[layers[length - 1].size];
-        for (int i = 0; i < layers[length - 1].size; i++) {
-            tar[i] = random_in_range(0.0, 1.0)*EPSILON;
-        }
-        backpropagation(tar);
-        delete[] tar;
+    double* tar = new double[layers[length - 1].size];
+    for (int i = 0; i < layers[length - 1].size; i++) {
+        tar[i] = layers[length - 1].neurons[i] - random_in_range(-1.0, 1.0)*EPSILON;
     }
+    backpropagation(tar);
+    delete[] tar;
 }
 
 int Perceptron::getOut() {
     int maxi = 0;
     for (int i = 1; i < layers[length - 1].size; i++) {
-        if (layers[length - 1].neurons[maxi] < layers[length - 1].neurons[0]) {
+        if (layers[length - 1].neurons[maxi] < layers[length - 1].neurons[i]) {
             maxi = i;
         }
     }

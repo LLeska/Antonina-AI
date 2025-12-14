@@ -74,12 +74,12 @@ NeuroEvolution::NeuroEvolution(double learningRate_, int length_, int* sizes_, i
 		sizes[i] = sizes_[i];
 	}
 	neuros = new Perceptron[population];
-	Perceptron p(learningRate, length, sizes);
 	for (int i = 0; i < population; i++) {
+		Perceptron p(learningRate, length, sizes);
 		neuros[i] = p;
 	}
 	clearFitness();
-	evolution();
+	//evolution();
 }
 
 NeuroEvolution::~NeuroEvolution() {
@@ -117,7 +117,9 @@ void NeuroEvolution::setFitness(int* fitness_) {
 
 
 void NeuroEvolution::evolution() {
-	quickSort(0, population-1);
+	if (!allEqual()) {
+		quickSort(0, population - 1);
+	}
 	for (int i = 0; i < population; i++) {
 		std::cout << fitness[i] << " ";	
 	}
@@ -128,10 +130,10 @@ void NeuroEvolution::evolution() {
 	}
 	delete[] neuros;
 	neuros = new Perceptron[population];
-	for (int i = 0; i < parents_size/5; i++) {
+	for (int i = 0; i < parents_size; i++) {
 		neuros[i] = best[i];
 	}
-	for (int i = parents_size / 5; i < population; i++) {
+	for (int i = parents_size ; i < population; i++) {
 		int ind1 = random_in_range(0, parents_size - 1);
 		int ind2 = random_in_range(0, parents_size - 1);
 		Perceptron p(&(best[ind1]), &(best[ind2]));
@@ -197,6 +199,13 @@ void NeuroEvolution::writeInFile(std::ofstream* fout) {
 		}
 		*fout << '\n';
 	}
+}
+
+bool NeuroEvolution::allEqual() {
+	for (int i = 1; i < population; i++) {
+		if (fitness[0] != fitness[i]) return false;
+	}
+	return true;
 }
 
 Perceptron* NeuroEvolution::demonstrate() {
