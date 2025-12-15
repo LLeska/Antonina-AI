@@ -33,7 +33,7 @@ public:
 
 	int getPopulation();
 
-	Perceptron** getNeuros();
+	Perceptron* getNeuros();
 
 	int* getFitness();
 

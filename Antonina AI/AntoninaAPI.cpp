@@ -942,3 +942,80 @@ int* AntoninaAPI::solveFitness(Perceptron** neuros, int population, int tests_to
 	fin.close();
 	return fitness;
 }
+
+
+int AntoninaAPI::solveFitness(Perceptron* p, int tests_to_run) {
+
+	std::ifstream fin("Test0.csv");
+	if (!fin.is_open()) {
+		std::cerr << "Ошибка открытия Test0.csv" << std::endl;
+		return 0;
+	}
+
+	int total_tests = 0;
+	std::string line;
+	while (std::getline(fin, line)) total_tests++;
+	if (total_tests == 0) {
+		std::cerr << "Test0.csv пустой!" << std::endl;
+		fin.close();
+		return 0;
+	}
+	fin.clear();
+
+	int actual_tests = std::min(tests_to_run, total_tests);
+	if (actual_tests <= 0) actual_tests = total_tests;
+	fin.seekg(0);
+
+	const int SUCCESS_BASE = 500;            // базовая награда за доставку
+	const int SUCCESS_STEP_BONUS = 5;        // бонус за каждый незатраченный шаг
+	const int CLOSE_BONUS = 10;              // бонус за сокращение манхэттен-расстояния
+	const int FAIL_PENALTY = -50;           // штраф за неудачу
+	const int TERMINATE_PENALTY = -300;      // штраф за аварийное прерывание
+
+
+	long long total_score = 0;
+
+	fin.clear();
+	fin.seekg(0);
+
+	for (int test_idx = 0; test_idx < actual_tests; test_idx++) {
+		int ax, ay, Ox, Oy, gx, gy, rn;
+		fin >> ax >> ay >> Ox >> Oy >> gx >> gy >> rn;
+
+
+		char lab[8][8];
+		MakeLab(lab, ax, ay, ax, ay, gx, gy, 0);
+
+		int initial_distance = abs(Ox - gx) + abs(Oy - gy);
+		int min_distance = initial_distance;
+
+
+		int result = GoTest(lab, min_distance, false, p);
+
+		if (result > 0) {
+			int step_bonus = std::max(0, STEPS_LIMIT - result);
+			int reward = SUCCESS_BASE + step_bonus * SUCCESS_STEP_BONUS;
+			total_score += reward;
+		}
+		else {
+			if (result == -2) {
+				total_score += TERMINATE_PENALTY;
+			}
+			else {
+				int distance_reduction = initial_distance - min_distance;
+				if (distance_reduction > 0) {
+					total_score += distance_reduction * CLOSE_BONUS;
+				}
+				else {
+					total_score += FAIL_PENALTY;
+				}
+			}
+		}
+	}
+	int avg_score = 0;
+	if (actual_tests > 0) avg_score = total_score / actual_tests;
+
+
+	fin.close();
+	return avg_score;
+}

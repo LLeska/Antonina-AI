@@ -86,16 +86,15 @@ void Layer::readFromFile(std::ifstream* fin) {
     this->deInit();
     *fin >> size >> nextSize;
     neurons = new double[size]();
+    *fin >> neurons[0];
+    for (int i = 1; i < size; i++) {
+        *fin >> neurons[i];
+    }
     if (nextSize > 0) {
         biases = new double[nextSize];
         weights = new double* [nextSize];
         for (int i = 0; i < nextSize; i++) {
             weights[i] = new double[size];
-        }
-    
-        *fin >> neurons[0];
-        for (int i = 1; i < size; i++) {
-            *fin >> neurons[i];
         }
         *fin >> biases[0];
         for (int i = 1; i < nextSize; i++) {

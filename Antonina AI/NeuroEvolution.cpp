@@ -94,7 +94,7 @@ void NeuroEvolution::feedForward(double* state) {
 
 int NeuroEvolution::getPopulation() { return population; }
 
-Perceptron** NeuroEvolution::getNeuros() { return &neuros; }
+Perceptron* NeuroEvolution::getNeuros() { return neuros; }
 
 int* NeuroEvolution::getFitness() { return fitness; }
 
@@ -165,7 +165,7 @@ void NeuroEvolution::readFromFile(std::ifstream* fin) {
 		return;
 	}
 	this->deinit();
-	*fin >> learningRate >> length >> population;
+	*fin >> learningRate >> length >> population >> parents_size;
 	sizes = new int[length];
 	for (int i = 0; i < length; i++) {
 		*fin >> sizes[i];
@@ -174,34 +174,18 @@ void NeuroEvolution::readFromFile(std::ifstream* fin) {
 	for (int i = 0; i < population; i++) {
 		neuros[i].readFromFile(fin);
 	}
-	bool flag;
-	*fin >> flag;
-	if (flag) {
-		fitness = new int[population];
-		for (int i = 0; i < population; i++) {
-			*fin >> population;
-		}
-	}
+	
 }
 
 void NeuroEvolution::writeInFile(std::ofstream* fout) {
-	*fout << learningRate << ' ' << length << ' ' << population << '\n';
+	*fout << learningRate << ' ' << length << ' ' << population<<' ' << parents_size << '\n';
 	*fout << sizes[0];
-	for (int i = 0; i < length; i++) {
+	for (int i = 1; i < length; i++) {
 		*fout << ' ' << sizes[i];
 	}
 	*fout << '\n';
 	for (int i = 0; i < population; i++) {
 		neuros[i].writeInFile(fout);
-	}
-	if (fitness == nullptr) *fout << false << '\n';
-	else {
-		*fout << true << '\n';
-		*fout << fitness[0];
-		for (int i = 0; i < population; i++) {
-			*fout << ' ' << fitness[i];
-		}
-		*fout << '\n';
 	}
 }
 
