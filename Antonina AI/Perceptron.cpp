@@ -3,8 +3,8 @@
 #include <iostream>
 #include <chrono>
 
-double EPSILON_ = 1;
-double NOT_MUTAHION_ = 0.05;
+double EPSILON_ = 0.3;
+double NOT_MUTAHION_ = 0.08;
 
 template<typename T>
 T Perceptron::random_in_range(T a, T b) {
@@ -82,19 +82,27 @@ Perceptron::Perceptron(double learningRate_, int length_, int* sizes) {
     learningRate = learningRate_;
     length = length_;
     layers = new Layer[length];
+
+    unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+    static std::default_random_engine generator(seed);
+    std::uniform_real_distribution<double> distribution(-1.0, 1.0);
+
     for (int l = 0; l < length; l++) {
         int nextSize = 0;
         if (l < length - 1) {
             nextSize = sizes[l + 1];
         }
         layers[l] = Layer(sizes[l], nextSize);
+
         if (nextSize > 0 && layers[l].biases && layers[l].weights) {
             for (int j = 0; j < nextSize; j++) {
-                layers[l].biases[j] = random_in_range(-1.0, 1.0);
+                layers[l].biases[j] = distribution(generator);
+
                 for (int k = 0; k < sizes[l]; k++) {
-                    layers[l].weights[j][k] = random_in_range(-1.0, 1.0);
+                    double range = sqrt(6.0 / (sizes[l] + nextSize));
+                    layers[l].weights[j][k] = distribution(generator) * range;
                 }
-            }  
+            }
         }
     }
 }
@@ -166,20 +174,37 @@ Perceptron::Perceptron(Perceptron* p1, Perceptron* p2) {
     layers = new Layer[length];
     EPSILON = EPSILON_;
     NOT_MUTAHION = NOT_MUTAHION_;
+
     for (int i = 0; i < length; i++) {
-        if (random_in_range(0.0, 1.0) > 0.5) {
-            layers[i] = p1->layers[i];
-        }
-        else {
-            layers[i] = p2->layers[i];
+        layers[i] = Layer(p1->layers[i].size,
+            p1->layers[i].nextSize);
+        for (int j = 0; j < layers[i].nextSize; j++) {
+            // биас случайно от одного из родителей
+            if (random_in_range(0.0, 1.0) > 0.5) {
+                layers[i].biases[j] = p1->layers[i].biases[j];
+            }
+            else {
+                layers[i].biases[j] = p2->layers[i].biases[j];
+            }
+            // каждый вес случайно от одного из родителей
+            for (int k = 0; k < layers[i].size; k++) {
+                if (random_in_range(0.0, 1.0) > 0.5) {
+                    layers[i].weights[j][k] = p1->layers[i].weights[j][k];
+                }
+                else {
+                    layers[i].weights[j][k] = p2->layers[i].weights[j][k];
+                }
+                // Мутация с вероятностью NOT_MUTAHION
+                if (random_in_range(0.0, 1.0) < NOT_MUTAHION) {
+                    layers[i].weights[j][k] += random_in_range(-1.0, 1.0) * EPSILON;
+                }
+            }
+            // Мутация биаса
+            if (random_in_range(0.0, 1.0) < NOT_MUTAHION) {
+                layers[i].biases[j] += random_in_range(-1.0, 1.0) * EPSILON;
+            }
         }
     }
-    double* tar = new double[layers[length - 1].size];
-    for (int i = 0; i < layers[length - 1].size; i++) {
-        tar[i] = layers[length - 1].neurons[i] - random_in_range(-1.0, 1.0)*EPSILON;
-    }
-    backpropagation(tar);
-    delete[] tar;
 }
 
 int Perceptron::getOut() {

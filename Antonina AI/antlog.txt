@@ -20,6 +20,6 @@
 #	New test...  fail!
 #	New test...  fail!
 #	New test...  fail!
-#	New test...  fail!
-#####	Test 00: winrate=5% av.steps=1 score=4
+#	New test...  done in 1 steps!
+#####	Test 00: winrate=10% av.steps=1 score=9
 #####	All done!

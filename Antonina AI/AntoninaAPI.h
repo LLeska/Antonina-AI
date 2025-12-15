@@ -27,6 +27,6 @@ private:
 	void writeInFile();
 	char Move(char map[][8], Perceptron* p);
 	void demonstrate(Perceptron* p);
-	int* solveFitness(Perceptron** neuros, int population, int right);
+	int* solveFitness(Perceptron** neuros, int population, int tests_to_run);
 };
 

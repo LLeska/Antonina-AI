@@ -19,9 +19,9 @@ T NeuroEvolution::random_in_range(T a, T b) {
 	}
 }
 
-int NeuroEvolution::partition( int low, int high) {
+int NeuroEvolution::partition(int low, int high) {
 	int pivot = fitness[high];
-	int i = low - 1; 
+	int i = low - 1;
 
 	for (int j = low; j < high; j++) {
 		if (fitness[j] >= pivot) {
@@ -37,8 +37,8 @@ int NeuroEvolution::partition( int low, int high) {
 	int temp = fitness[i + 1];
 	fitness[i + 1] = fitness[high];
 	fitness[high] = temp;
-	Perceptron p = neuros[i+1];
-	neuros[i+1] = neuros[high];
+	Perceptron p = neuros[i + 1];
+	neuros[i + 1] = neuros[high];
 	neuros[high] = p;
 
 	return i + 1;
@@ -86,7 +86,7 @@ NeuroEvolution::~NeuroEvolution() {
 	deinit();
 }
 
-void NeuroEvolution::feedForward(double *state) {
+void NeuroEvolution::feedForward(double* state) {
 	for (int i = 0; i < population; i++) {
 		neuros[i].feedForward(state);
 	}
@@ -110,10 +110,14 @@ void NeuroEvolution::clearFitness() {
 }
 
 void NeuroEvolution::setFitness(int* fitness_) {
+	if (fitness == nullptr) {
+		fitness = new int[population];
+	}
 	for (int i = 0; i < population; i++) {
-		fitness[i] += fitness_[i];
+		fitness[i] = fitness_[i];
 	}
 }
+
 
 
 void NeuroEvolution::evolution() {
@@ -121,7 +125,7 @@ void NeuroEvolution::evolution() {
 		quickSort(0, population - 1);
 	}
 	for (int i = 0; i < population; i++) {
-		std::cout << fitness[i] << " ";	
+		std::cout << fitness[i] << " ";
 	}
 	std::cout << "\n";
 	Perceptron* best = new Perceptron[parents_size];
@@ -133,7 +137,7 @@ void NeuroEvolution::evolution() {
 	for (int i = 0; i < parents_size; i++) {
 		neuros[i] = best[i];
 	}
-	for (int i = parents_size ; i < population; i++) {
+	for (int i = parents_size; i < population; i++) {
 		int ind1 = random_in_range(0, parents_size - 1);
 		int ind2 = random_in_range(0, parents_size - 1);
 		Perceptron p(&(best[ind1]), &(best[ind2]));
@@ -157,11 +161,11 @@ void NeuroEvolution::writeInFile(std::string file) {
 
 void NeuroEvolution::readFromFile(std::ifstream* fin) {
 	if (!fin->is_open()) {
-        std::cerr << "Ошибка открытия файла" << std::endl;
-        return;
-    }
-    this->deinit();
-    *fin >> learningRate >> length >> population;
+		std::cerr << "Ошибка открытия файла" << std::endl;
+		return;
+	}
+	this->deinit();
+	*fin >> learningRate >> length >> population;
 	sizes = new int[length];
 	for (int i = 0; i < length; i++) {
 		*fin >> sizes[i];

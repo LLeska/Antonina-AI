@@ -9,7 +9,6 @@
 using std::cout, std::endl, std::this_thread::sleep_for;
 using namespace std::chrono_literals;
 
-//		      YOU CAN SET THESE CONSTS WHILE DEBUGING
 
 
 AntoninaAPI::AntoninaAPI(){
@@ -19,44 +18,34 @@ char AntoninaAPI::Move(char map[][8], Perceptron* p) {
 	double* input = new double[64];
 	for (int i = 0; i < 8; i++) {
 		for (int j = 0; j < 8; j++) {
-			
+			// default safe value
+			double v = 0.0;
 			switch (map[i][j]) {
-			case '.':
-				input[i + j] = 0.1;
-			case '@':
-				input[i + j] = 1;
-			case 'a':
-				input[i + j] = 0.5;
-			case '%':
-				input[i + j] = 0.7;
-			case '#':
-				input[i + j] = 0.9;
-			case 'O':
-				input[i + j] = 0.3;
-			default:
-				input[i + j] = -1.0;
+			case '.': v = 0.0; break;   
+			case '@': v = 1.0; break;   
+			case 'a': v = 0.6; break;   
+			case '%': v = 0.9; break;   
+			case '#': v = 0.7; break;   
+			case 'O': v = 0.3; break;   
+			default:  v = 0.0; break;   
 			}
+			input[i * 8 + j] = v;
 		}
 	}
-	
+
 	p->feedForward(input);
 	delete[] input;
-	switch(p->getOut()) {
-	case 0:
-		return 'u';
-	case 1:
-		return 'r';
-	case 2:
-		return 'd';
-	default:
-		return 'l';
+
+	switch (p->getOut()) {
+	case 0: return 'u';
+	case 1: return 'r';
+	case 2: return 'd';
+	case 3: return 'l';
+	default: return 'u';
 	}
 	
 }
 
-//	========================================= ! DO NOT TOUCH ! ==========================================
-//	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|
-//	v	v	v	v	v	v	v	v	v	v	v	v	v	v	v	v	v	v	v	v	v	v	v	v	v	v
 
 
 void AntoninaAPI::ClearLab(char lab[][8])
@@ -557,6 +546,10 @@ void AntoninaAPI::demonstrate(Perceptron* p)
 	totalscore += score;
 	wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
 	printf("Test 00: winrate=%d%% av.steps=%d score=%d\n", wr, as, score);
+	for (int l = 0; l < 10; l++)
+	{
+		printf("\033[B");
+	}
 	logfile << "#####\tTest 00: winrate=" << wr << "% av.steps=" << as << " score=" << score << "\n";
 	/*
 	//Test 01 	no line not at walls
@@ -869,321 +862,83 @@ void AntoninaAPI::demonstrate(Perceptron* p)
 	logfile.close();
 }
 
-int* AntoninaAPI::solveFitness(Perceptron** neuros, int population, int right) {
+int* AntoninaAPI::solveFitness(Perceptron** neuros, int population, int tests_to_run) {
 	int* fitness = new int[population];
+
+	std::ifstream fin("Test0.csv");
+	if (!fin.is_open()) {
+		std::cerr << "Ошибка открытия Test0.csv" << std::endl;
+		for (int i = 0; i < population; i++) fitness[i] = 0;
+		return fitness;
+	}
+
+	int total_tests = 0;
+	std::string line;
+	while (std::getline(fin, line)) total_tests++;
+	if (total_tests == 0) {
+		std::cerr << "Test0.csv пустой!" << std::endl;
+		for (int i = 0; i < population; i++) fitness[i] = 0;
+		fin.close();
+		return fitness;
+	}
+	fin.clear();
+
+	int actual_tests = std::min(tests_to_run, total_tests);
+	if (actual_tests <= 0) actual_tests = total_tests; 
+	fin.seekg(0);
+
+	const int SUCCESS_BASE = 500;            // базовая награда за доставку
+	const int SUCCESS_STEP_BONUS = 5;        // бонус за каждый незатраченный шаг
+	const int CLOSE_BONUS = 10;              // бонус за сокращение манхэттен-расстояния
+	const int FAIL_PENALTY = -50;           // штраф за неудачу
+	const int TERMINATE_PENALTY = -300;      // штраф за аварийное прерывание
+
 	for (int neur = 0; neur < population; neur++) {
 		Perceptron* p = &(*neuros)[neur];
-		srand(time(NULL));
-		char lab[8][8];
-		int rx[64];
-		int ry[64];
-		int nr = 0;
-		int wins=0;
-		int sum=0;
-		int score = 0;
-		int wr, as;
-		int totalscore = 0;
-		int maxscore = 0;
-		int k = 10000;
-		//Test 00 	one line not at walls
-		std::ifstream fin("Test0.csv");
-		for (int j = 0; j < right; j++) {//448 4032
-			//wins = 0; sum = 0;
-			for (int i = 0; i < N_TESTS; i++)//343 29
-			{
-				int winbonus = 0;
-				int stepbonus = 0;
-				int dist_bonus = 0;
-				int stupid_bonus = 0;
+		long long total_score = 0;
+
+		fin.clear();
+		fin.seekg(0);
+
+		for (int test_idx = 0; test_idx < actual_tests; test_idx++) {
+			int ax, ay, Ox, Oy, gx, gy, rn;
+			fin >> ax >> ay >> Ox >> Oy >> gx >> gy >> rn;
 				
-				int ax, ay, gx, gy, Ox, Oy, rn;
-				readLab(&fin, ax, ay, Ox, Oy, gx, gy, rn);
-				int s0 = abs(Ox - gx) + abs(Oy - gy);
-				MakeLab(lab, ax, ay, ax, ay, gx, gy, rn);
-				//test
-				int s = s0;
-				int res = GoTest(lab, s, false, p);
-				if (res > 0)
-				{ 
-					winbonus = 500 * k;
-					stepbonus = log(STEPS_LIMIT / res) * 5 * k;
-					dist_bonus = exp(s0) * 100 * k;
-					wins++;
-					sum += res;
+
+			char lab[8][8];
+			MakeLab(lab, ax, ay, ax, ay, gx, gy, 0);
+
+			int initial_distance = abs(Ox - gx) + abs(Oy - gy);
+			int min_distance = initial_distance;
+
+
+			int result = GoTest(lab, min_distance, false, p);
+
+			if (result > 0) {
+				int step_bonus = std::max(0, STEPS_LIMIT - result);
+				int reward = SUCCESS_BASE + step_bonus * SUCCESS_STEP_BONUS;
+				total_score += reward;
+			}
+			else {
+				if (result == -2) {
+					total_score += TERMINATE_PENALTY;
 				}
-				else if (res == -2) StopAll();
-				else if (s0 - s > 0) dist_bonus = exp(s0) * 100 * k;
-				else if (s0 - s < 0) {
-					dist_bonus = (s0 - s) * 50 * k;
-					stupid_bonus = 10 * k;
+				else {
+					int distance_reduction = initial_distance - min_distance;
+					if (distance_reduction > 0) {
+						total_score += distance_reduction * CLOSE_BONUS;
+					}
+					else {
+						total_score += FAIL_PENALTY;
+					}
 				}
-				else stupid_bonus = 50 * k;
-				score += 0.5 * winbonus + stepbonus * 0.1 + 2 * dist_bonus + stupid_bonus;
 			}
-			//score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
-
-			//wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
-			totalscore += score;
-			//totalscore += wr;
 		}
-		/*
-		//Test 01 	no line not at walls
-		wins = 0; sum = 0;
-		for (int i = 0; i < N_TESTS; i++)
-		{
-			int ax = 1 + rand() % 6, ay = 1 + rand() % 6;
-			int gx = ax, gy = ay;
-			while (gx == ax) gx = 1 + rand() % 6;
-			while (gy == ay) gy = 1 + rand() % 6;
-			MakeLab(lab, ax, ay, ax, ay, gx, gy, 0);
-			//test
-			int res = GoTest(lab, false, p);
-			if (res > 0) { wins++; sum += res; }
-			else if (res == -2) StopAll();
-		}
-		score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
-		totalscore += score;
-		wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
-		//Test 02 	one line O at wall
-		wins = 0; sum = 0;
-		for (int i = 0; i < N_TESTS; i++)
-		{
-			int ax = 1 + rand() % 6, ay = 1 + rand() % 6;
-			if (rand() % 2 == 0) ax = (rand() % 2 == 0) ? 0 : 7;
-			else ay = (rand() % 2 == 0) ? 0 : 7;
-			int gx = ax, gy = ay;
-			if (rand() % 2 == 0) while (gx == ax) gx = rand() % 8;
-			else while (gy == ay) gy = rand() % 8;
-			MakeLab(lab, ax, ay, ax, ay, gx, gy, 0);
-			//test
-			int res = GoTest(lab, false, p);
-			if (res > 0) { wins++; sum += res; }
-			else if (res == -2) StopAll();
-		}
-		score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
-		totalscore += score;
-		wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
-		//Test 03 	all in corners
-		/*
-		wins = 0; sum = 0;
-		for (int i = 0; i < N_TESTS; i++)
-		{
-			int ax = (rand() % 2 == 0) ? 0 : 7, ay = (rand() % 2 == 0) ? 0 : 7;
-			int gx = ax, gy = ay;
-			while (gx == ax && gy == ay)
-			{
-				gx = (rand() % 2 == 0) ? 0 : 7;
-				gy = (rand() % 2 == 0) ? 0 : 7;
-			}
-			MakeLab(lab, ax, ay, ax, ay, gx, gy, 0);
-			//test
-			int res = GoTest(lab, false, p);
-			if (res > 0) { wins++; sum += res; }
-			else if (res == -2) StopAll();
-		}
-		score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
-		totalscore += score;
-		wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;/*
-		//Test 04 	at 1 line with 1 #
-		wins = 0; sum = 0;
-		for (int i = 0; i < N_TESTS; i++)
-		{
-			int ax = rand() % 8, ay = rand() % 8;
-			int gx = ax, gy = ay;
-			if (rand() % 2 == 0) while (abs(gx - ax) < 2) gx = rand() % 8;
-			else while (abs(gy - ay) < 2) gy = rand() % 8;
-			rx[0] = (gx + ax) / 2;
-			ry[0] = (gy + ay) / 2;
-			MakeLab(lab, ax, ay, ax, ay, gx, gy, 1, rx, ry);
-			//test
-			int res = GoTest(lab, false, p);
-			if (res > 0) { wins++; sum += res; }
-			else if (res == -2) StopAll();
-		}
-		score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
-		totalscore += score;
-		wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
-
-		//Test 05 	not at 1 line with 2 #
-		wins = 0; sum = 0;
-		for (int i = 0; i < N_TESTS; i++)
-		{
-			int ax = rand() % 8, ay = rand() % 8;
-			int gx = ax, gy = ay;
-			while (gx == ax) gx = rand() % 8;
-			while (gy == ay) gy = rand() % 8;
-			rx[0] = gx;	ry[0] = ay;
-			rx[1] = ax;	ry[1] = gy;
-			MakeLab(lab, ax, ay, ax, ay, gx, gy, 2, rx, ry);
-			//test
-			int res = GoTest(lab, false, p);
-			if (res > 0) { wins++; sum += res; }
-			else if (res == -2) StopAll();
-		}
-		score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
-		totalscore += score;
-		wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
-		//Tests 06-09 	not at 1 line with many #
-		nr = 4;
-		for (int k = 0; k < 4; k++)
-		{
-			wins = 0;
-			sum = 0;
-			for (int i = 0; i < N_TESTS; i++)
-			{
-				int ax = rand() % 8, ay = rand() % 8;
-				int gx = ax, gy = ay;
-				while (gx == ax) gx = rand() % 8;
-				while (gy == ay) gy = rand() % 8;
-				bool done = false;
-				while (!done)
-					done = MakeLab(lab, ax, ay, ax, ay, gx, gy, nr);
-				//test
-				int res = GoTest(lab, false, p);
-				if (res > 0) { wins++; sum += res; }
-				else if (res == -2) StopAll();
-			}
-			score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
-			totalscore += score;
-			wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
-			nr *= 2;
-		}
-
-		//Test 10 1 block line
-		wins = 0; sum = 0;
-		for (int i = 0; i < N_TESTS; i++)
-		{
-			int ax, ay, gx, gy;
-			nr = 8;
-			if (rand() % 2 == 0) //vert
-			{
-				ax = rand() % 8; gx = rand() % 8;
-				if (rand() % 2 == 0) { ay = rand() % 2; gy = 6 + rand() % 2; }
-				else { ay = 6 + rand() % 2; gy = rand() % 2; }
-				int y = 2 + rand() % 4;
-				for (int ir = 0; ir < 8; ir++) { rx[ir] = ir; ry[ir] = y; }
-			}
-			else
-			{
-				ay = rand() % 8; gy = rand() % 8;
-				if (rand() % 2 == 0) { ax = rand() % 2; gx = 6 + rand() % 2; }
-				else { ax = 6 + rand() % 2; gx = rand() % 2; }
-				int x = 2 + rand() % 4;
-				for (int ir = 0; ir < 8; ir++) { rx[ir] = x; ry[ir] = ir; }
-			}
-			MakeLab(lab, ax, ay, ax, ay, gx, gy, nr, rx, ry);
-			//test
-			int res = GoTest(lab, false, p);
-			if (res > 0) { wins++; sum += res; }
-			else if (res == -2) StopAll();
-		}
-		score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
-		totalscore += score;
-		wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
-
-		//Test 11 2 block lines
-		wins = 0; sum = 0;
-		for (int i = 0; i < N_TESTS; i++)
-		{
-			int ax, ay, gx, gy;
-			nr = 16;
-			if (rand() % 2 == 0) //vert
-			{
-				ax = rand() % 8; gx = rand() % 8;
-				if (rand() % 2 == 0) { ay = rand() % 2; gy = 6 + rand() % 2; }
-				else { ay = 6 + rand() % 2; gy = rand() % 2; }
-				int y = 2 + rand() % 3;
-				for (int ir = 0; ir < 8; ir++) { rx[ir * 2] = ir; ry[ir * 2] = y; rx[ir * 2 + 1] = ir; ry[ir * 2 + 1] = y + 1; }
-			}
-			else
-			{
-				ay = rand() % 8; gy = rand() % 8;
-				if (rand() % 2 == 0) { ax = rand() % 2; gx = 6 + rand() % 2; }
-				else { ax = 6 + rand() % 2; gx = rand() % 2; }
-				int x = 2 + rand() % 3;
-				for (int ir = 0; ir < 8; ir++) { rx[ir * 2] = x; ry[ir * 2] = ir; rx[ir * 2 + 1] = x + 1; ry[ir * 2 + 1] = ir; }
-			}
-			MakeLab(lab, ax, ay, ax, ay, gx, gy, nr, rx, ry);
-			//test
-			int res = GoTest(lab, false, p);
-			if (res > 0) { wins++; sum += res; }
-			else if (res == -2) StopAll();
-		}
-		score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
-		totalscore += score;
-		wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
-
-		//Test 12 3 block lines
-		wins = 0; sum = 0;
-		for (int i = 0; i < N_TESTS; i++)
-		{
-			int ax, ay, gx, gy;
-			nr = 24;
-			if (rand() % 2 == 0) //vert
-			{
-				ax = rand() % 8; gx = rand() % 8;
-				if (rand() % 2 == 0) { ay = rand() % 2; gy = 6 + rand() % 2; }
-				else { ay = 6 + rand() % 2; gy = rand() % 2; }
-				int x = 2 + rand() % 2;
-				for (int ir = 0; ir < 8; ir++)
-					for (int ik = 0; ik < 3; ik++) { rx[ir * 3 + ik] = ir; ry[ir * 3 + ik] = x + ik; }
-			}
-			else
-			{
-				ay = rand() % 8; gy = rand() % 8;
-				if (rand() % 2 == 0) { ax = rand() % 2; gx = 6 + rand() % 2; }
-				else { ax = 6 + rand() % 2; gx = rand() % 2; }
-				int y = 2 + rand() % 2;
-				for (int ir = 0; ir < 8; ir++)
-					for (int ik = 0; ik < 3; ik++) { rx[ir * 3 + ik] = y + ik; ry[ir * 3 + ik] = ir; }
-			}
-			MakeLab(lab, ax, ay, ax, ay, gx, gy, nr, rx, ry);
-			//test
-			int res = GoTest(lab, false, p);
-			if (res > 0) { wins++; sum += res; }
-			else if (res == -2) StopAll();
-		}
-		score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
-		totalscore += score;
-		wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
-
-		//Test 13 4 block lines
-		wins = 0; sum = 0;
-		for (int i = 0; i < N_TESTS; i++)
-		{
-			int ax, ay, gx, gy;
-			nr = 32;
-			if (rand() % 2 == 0) //vert
-			{
-				ax = rand() % 8; gx = rand() % 8;
-				if (rand() % 2 == 0) { ay = rand() % 2; gy = 6 + rand() % 2; }
-				else { ay = 6 + rand() % 2; gy = rand() % 2; }
-				for (int ir = 0; ir < 8; ir++)
-					for (int ik = 0; ik < 4; ik++) { rx[ir * 4 + ik] = ir; ry[ir * 4 + ik] = 2 + ik; }
-			}
-			else
-			{
-				ay = rand() % 8; gy = rand() % 8;
-				if (rand() % 2 == 0) { ax = rand() % 2; gx = 6 + rand() % 2; }
-				else { ax = 6 + rand() % 2; gx = rand() % 2; }
-				for (int ir = 0; ir < 8; ir++)
-					for (int ik = 0; ik < 4; ik++) { rx[ir * 4 + ik] = 2 + ik; ry[ir * 4 + ik] = ir; }
-			}
-			MakeLab(lab, ax, ay, ax, ay, gx, gy, nr, rx, ry);
-			//test
-			int res = GoTest(lab, false, p);
-			if (res > 0) { wins++; sum += res; }
-			else if (res == -2) StopAll();
-		}
-		score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
-		totalscore += score;
-		wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
-		*/
-		//end
-		wr = (1000000 * wins) / (N_TESTS*right); as = wins > 0 ? sum / wins : 0;
-		//totalscore += score;
-		//totalscore += wr;
-		fitness[neur] = score;
+		int avg_score = 0;
+		if (actual_tests > 0) avg_score = static_cast<int>(total_score / actual_tests);
+		fitness[neur] = avg_score;
 	}
+
+	fin.close();
 	return fitness;
 }
