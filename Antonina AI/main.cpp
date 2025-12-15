@@ -10,8 +10,9 @@ int main() {
     NeuroEvolution ne(0.01, 5, sizes, 10, population);
 
     AntoninaAPI environment;
-
-    for (int gen = 0; gen < 1000; gen++) {
+    int start = 9;
+    ne.readFromFile("models/gen_" + std::to_string(start) + ".csv");
+    for (int gen = start; gen < 1000+start; gen++) {
         std::cout << "gen " << gen << std::endl;
 
         int* fitness = environment.solveFitness(ne.getNeuros(), population, 0);
@@ -38,7 +39,7 @@ int main() {
         if (gen % 10 == 0) {
             environment.demonstrate(ne.demonstrate());
         }
-		ne.writeInFile("gen_" + std::to_string(gen) + ".csv");
+		ne.writeInFile("models/gen_" + std::to_string(gen) + ".csv");
     }
 
     delete[] sizes;

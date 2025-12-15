@@ -1,7 +1,5 @@
 #pragma once
-#include <fstream>
 #include "Perceptron.h"
-#include <fstream>
 
 class AntoninaAPI
 {

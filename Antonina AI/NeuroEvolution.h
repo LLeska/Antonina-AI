@@ -1,7 +1,5 @@
 #pragma once
 #include "Perceptron.h"
-#include <fstream>
-#include <string>
 
 class NeuroEvolution
 {
