@@ -94,7 +94,7 @@ void NeuroEvolution::feedForward(double* state) {
 
 int NeuroEvolution::getPopulation() { return population; }
 
-Perceptron* NeuroEvolution::getNeuros() { return neuros; }
+Perceptron* NeuroEvolution::getNeuros(int i) { return &(neuros[i]); }
 
 int* NeuroEvolution::getFitness() { return fitness; }
 
@@ -121,29 +121,136 @@ void NeuroEvolution::setFitness(int* fitness_) {
 
 
 void NeuroEvolution::evolution() {
+	if (population <= 0 || neuros == nullptr) return;
+
 	if (!allEqual()) {
 		quickSort(0, population - 1);
 	}
-	for (int i = 0; i < population; i++) {
-		std::cout << fitness[i] << " ";
+
+	static int best_so_far = INT_MIN;
+	static int gens_since_improvement = 0;
+
+	int current_best = fitness[0];
+	bool improved = false;
+	if (current_best > best_so_far) {
+		best_so_far = current_best;
+		gens_since_improvement = 0;
+		improved = true;
 	}
-	std::cout << "\n";
-	Perceptron* best = new Perceptron[parents_size];
-	for (int i = 0; i < parents_size; i++) {
-		best[i] = neuros[i];
+	else {
+		++gens_since_improvement;
+		improved = false;
 	}
-	delete[] neuros;
-	neuros = new Perceptron[population];
-	for (int i = 0; i < parents_size; i++) {
-		neuros[i] = best[i];
+
+
+	if (gens_since_improvement > 250) {
+		int survivors = population / 10;
+		Perceptron* saved = new Perceptron[survivors];
+		for (int i = 0; i < survivors; ++i) saved[i] = neuros[i];
+
+		for (int i = survivors; i < population; ++i) {
+			Perceptron random_one(learningRate, length, sizes);
+			neuros[i] = random_one;
+		}
+
+		for (int i = 0; i < survivors; ++i) neuros[i] = saved[i];
+		delete[] saved;
+
+		gens_since_improvement = 0;
+		clearFitness();
+		return;
 	}
-	for (int i = parents_size; i < population; i++) {
-		int ind1 = random_in_range(0, parents_size - 1);
-		int ind2 = random_in_range(0, parents_size - 1);
-		Perceptron p(&(best[ind1]), &(best[ind2]));
-		neuros[i] = p;
+
+	int elite_count = std::max(5, population / 10);      // 10% элиты
+	int immigrants = std::max(30, population / 20);      // 5% случайных
+
+
+	for (int i = 0; i < elite_count; ++i) {
+		neuros[i].adaptMutationGlobals(improved, gens_since_improvement,
+			0.001, 0.2, 0.001, 0.15);
 	}
+	for (int i = elite_count; i < population; ++i) {
+		neuros[i].adaptMutationGlobals(improved, gens_since_improvement,
+			0.01, 1.5, 0.005, 0.7);
+	}
+
+	int use_parents = std::min(parents_size, population);
+	Perceptron* best = new Perceptron[use_parents];
+	for (int i = 0; i < use_parents; ++i) best[i] = neuros[i];
+
+	Perceptron* nextGen = new Perceptron[population];
+
+	for (int i = 0; i < elite_count; ++i) {
+		nextGen[i] = neuros[i];
+	}
+
+	static thread_local std::mt19937 gen((unsigned)std::chrono::high_resolution_clock::now().time_since_epoch().count());
+	std::uniform_int_distribution<int> parentDist(0, use_parents - 1);
+	long long avg_fitness = 0;
+	for (int i = 0; i < population; ++i) {
+		avg_fitness += fitness[i];
+	}
+	avg_fitness /= population;
+
+	double diversity = (double)avg_fitness / (fitness[0] + 1.0);
+
+	int tournament_size;
+	if (gens_since_improvement > 150) {
+		tournament_size = 2; 
+	}
+	else if (gens_since_improvement > 80) {
+		tournament_size = (diversity > 0.7) ? 4 : 2;
+	}
+	else if (gens_since_improvement > 30) {
+		tournament_size = 3;
+	}
+	else {
+		tournament_size = (diversity > 0.8) ? 5 : 3;
+	}
+
+	auto tournament = [&]()->int {
+		int winner = parentDist(gen);
+		for (int t = 1; t < tournament_size; ++t) {
+			int cand = parentDist(gen);
+			if (fitness[cand] > fitness[winner]) winner = cand;
+		}
+		return winner;
+		};
+
+	int idx = elite_count;
+	while (idx < population - immigrants) {
+		int i1 = tournament();
+
+		Perceptron child;
+		if (gens_since_improvement > 100 || random_in_range(0.0, 1.0) < 0.25) {
+			child = best[i1];
+		}
+		else {
+			int i2 = tournament();
+			child = Perceptron(&best[i1], &best[i2]);
+		}
+
+		double eps = best[i1].getEpsilon();
+		double prob = best[i1].getNotMutation();
+
+
+		if (gens_since_improvement > 50) {
+			eps *= random_in_range(0.7, 1.8);
+			prob *= random_in_range(0.7, 1.4);
+		}
+
+		child.mutate(eps, prob);
+		nextGen[idx++] = child;
+	}
+
+	for (int i = population - immigrants; i < population; ++i) {
+		Perceptron random_one(learningRate, length, sizes);
+		nextGen[i] = random_one;
+	}
+
 	delete[] best;
+	delete[] neuros;
+	neuros = nextGen;
 	clearFitness();
 }
 
@@ -165,14 +272,21 @@ void NeuroEvolution::readFromFile(std::ifstream* fin) {
 		return;
 	}
 	this->deinit();
-	*fin >> learningRate >> length >> population >> parents_size;
+	int population_;
+	int parents_size_;
+	*fin >> learningRate >> length >> population_ >> parents_size_;
 	sizes = new int[length];
 	for (int i = 0; i < length; i++) {
 		*fin >> sizes[i];
 	}
-	neuros = new Perceptron[population];
-	for (int i = 0; i < population; i++) {
+
+	neuros = new Perceptron[std::max(population, population_)];
+	for (int i = 0; i < std::min(population, population_); i++) {
 		neuros[i].readFromFile(fin);
+	}
+	for (int i = 0; i < population-population_; i++) {
+		Perceptron p(learningRate, length, sizes);
+		neuros[population_+i] = p;
 	}
 	
 }
@@ -201,8 +315,6 @@ Perceptron* NeuroEvolution::demonstrate() {
 }
 
 void NeuroEvolution::deinit() {
-	population = 0;
-	length = 0;
 	if (sizes != nullptr) {
 		delete[] sizes;
 	}

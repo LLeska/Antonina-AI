@@ -5,11 +5,18 @@ class AntoninaAPI
 {
 private:
 	std::ofstream logfile;
-	//		      YOU CAN SET THESE CONSTS WHILE DEBUGING
 	const int TIME_TO_SLEEP = 0;					//  <======== Animation delay (ms)
 	const bool PRINT_STEPS = true;					//  <======== Enable / disable animation
 	const int STEPS_LIMIT = 40;					//  <======== Steps limit for each run
 	const int N_TESTS = 20;
+	const int ALL_TESTS = 360;
+	int axarr[4032];
+	int ayarr[4032];
+	int Oxarr[4032];
+	int Oyarr[4032];
+	int gxarr[4032];
+	int gyarr[4032];
+	int rnarr[4032];
 	void ClearLab(char lab[][8]);
 	void PrintLab(char lab[][8]);
 	bool MakeLab(char lab[][8], int ax, int ay, int Ox, int Oy, int gx, int gy, int rn, int rx[], int ry[]);
@@ -25,7 +32,7 @@ private:
 	void writeInFile();
 	char Move(char map[][8], Perceptron* p);
 	void demonstrate(Perceptron* p);
-	int* solveFitness(Perceptron** neuros, int population, int tests_to_run);
+	int GoTestImproved(char lab[][8], int& min_rover_to_bucket, int& min_bucket_to_pad, bool& bucket_picked, bool doprint, Perceptron* p);
 	int solveFitness(Perceptron* p, int tests_to_run);
 };
 

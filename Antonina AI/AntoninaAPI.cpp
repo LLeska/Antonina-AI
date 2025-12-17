@@ -12,29 +12,50 @@ using namespace std::chrono_literals;
 
 
 AntoninaAPI::AntoninaAPI(){
+	std::ifstream fin("Test0.csv");
+
+	if (!fin.is_open()) {
+		std::cerr << "Ошибка открытия Test0.csv" << std::endl;
+		return;
+	}
+
+	int total_tests = 0;
+	std::string line;
+	while (std::getline(fin, line)) total_tests++;
+	if (total_tests == 0) {
+		std::cerr << "Test0.csv пустой!" << std::endl;
+		fin.close();
+		return;
+	}
+	fin.clear();
+	fin.seekg(0);
+	for (int i = 0; i < ALL_TESTS; i++) {
+		fin >> axarr[i] >> ayarr[i] >> Oxarr[i] >> Oyarr[i] >> gxarr[i] >> gyarr[i] >> rnarr[i];
+	}
+	fin.clear();
+	fin.seekg(0);
+	fin.close();
 }
 
 char AntoninaAPI::Move(char map[][8], Perceptron* p) {
-	double* input = new double[64];
+	double input[64];
 	for (int i = 0; i < 8; i++) {
 		for (int j = 0; j < 8; j++) {
-			// default safe value
 			double v = 0.0;
 			switch (map[i][j]) {
-			case '.': v = 0.0; break;   
-			case '@': v = 1.0; break;   
-			case 'a': v = 0.6; break;   
-			case '%': v = 0.9; break;   
-			case '#': v = 0.7; break;   
-			case 'O': v = 0.3; break;   
-			default:  v = 0.0; break;   
+			case '.': v = 0.0; break;
+			case '@': v = 1.0; break;
+			case 'a': v = 0.6; break;
+			case '%': v = 0.9; break;
+			case '#': v = 0.7; break;
+			case 'O': v = 0.3; break;
+			default:  v = 0.0; break;
 			}
 			input[i * 8 + j] = v;
 		}
 	}
 
 	p->feedForward(input);
-	delete[] input;
 
 	switch (p->getOut()) {
 	case 0: return 'u';
@@ -43,8 +64,8 @@ char AntoninaAPI::Move(char map[][8], Perceptron* p) {
 	case 3: return 'l';
 	default: return 'u';
 	}
-	
 }
+
 
 
 
@@ -513,9 +534,10 @@ void AntoninaAPI::writeInFile() {
 
 void AntoninaAPI::demonstrate(Perceptron* p)
 {
-	printf("Starting new Antonina runs!\nSTEPS_LIMIT=%d N_TESTS=%d\n", STEPS_LIMIT, N_TESTS);
+
+	printf("Starting new Antonina runs!\nSTEPS_LIMIT=%d ", STEPS_LIMIT);
 	logfile.open("antlog.txt");
-	logfile << "#####\tStarting new Antonina runs!\n#####\tSTEPS_LIMIT=" << STEPS_LIMIT << "\tN_TESTS=" << N_TESTS << "\n";
+	logfile << "#####\tStarting new Antonina runs!\n#####\tSTEPS_LIMIT=" << STEPS_LIMIT << "\n";
 	srand(time(NULL));
 	char lab[8][8];
 	int rx[64];
@@ -528,103 +550,89 @@ void AntoninaAPI::demonstrate(Perceptron* p)
 	//Test 00 	one line not at walls
 	logfile << "#####\tStarting Test 00...\n";
 	wins = 0; sum = 0;
-	for (int i = 0; i < N_TESTS; i++)
+	for (int i = 0; i < 360; i++)
 	{
-		int ax = 1 + rand() % 6, ay = 1 + rand() % 6;
-		int gx = ax, gy = ay;
-		if (rand() % 2 == 0) while (gx == ax) gx = 1 + rand() % 6;
-		else while (gy == ay) gy = 1 + rand() % 6;
+		int ax, ay, Ox, Oy, gx, gy, rn;
+		ax = axarr[i];
+		ay = ayarr[i];
+		Ox = Oxarr[i];
+		Oy = Oyarr[i];
+		gx = gxarr[i];
+		gy = gyarr[i];
+		rn = rnarr[i];
+		char lab[8][8];
 		MakeLab(lab, ax, ay, ax, ay, gx, gy, 0);
 		//test
-		printf("Test 00: %d/%d             \n", i, N_TESTS);
+		printf("Test 00: %d/%d             \n", i, 360);
 		int res = GoTest(lab, PRINT_STEPS, p);
 		if (res > 0) { wins++; sum += res; }
 		else if (res == -2) StopAll();
 		printf("\r\033[A");
 	}
-	score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
+	score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / 360;
 	totalscore += score;
-	wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
+	wr = 100 * wins / 360; as = wins > 0 ? sum / wins : 0;
 	printf("Test 00: winrate=%d%% av.steps=%d score=%d\n", wr, as, score);
-	for (int l = 0; l < 10; l++)
-	{
-		printf("\033[B");
-	}
 	logfile << "#####\tTest 00: winrate=" << wr << "% av.steps=" << as << " score=" << score << "\n";
 	/*
 	//Test 01 	no line not at walls
 	logfile << "#####\tStarting Test 01...\n";
 	wins = 0; sum = 0;
-	for (int i = 0; i < N_TESTS; i++)
+	for (int i = 0; i < 900; i++)
 	{
-		int ax = 1 + rand() % 6, ay = 1 + rand() % 6;
-		int gx = ax, gy = ay;
-		while (gx == ax) gx = 1 + rand() % 6;
-		while (gy == ay) gy = 1 + rand() % 6;
+		int ax, ay, Ox, Oy, gx, gy, rn;
+		ax = axarr[360 + i];
+		ay = ayarr[360 + i];
+		Ox = Oxarr[360 + i];
+		Oy = Oyarr[360 + i];
+		gx = gxarr[360 + i];
+		gy = gyarr[360 + i];
+		rn = rnarr[360 + i];
+		char lab[8][8];
 		MakeLab(lab, ax, ay, ax, ay, gx, gy, 0);
 		//test
-		printf("Test 01: %d/%d             \n", i, N_TESTS);
+		printf("Test 01: %d/%d             \n", i, 900);
 		int res = GoTest(lab, PRINT_STEPS, p);
 		if (res > 0) { wins++; sum += res; }
 		else if (res == -2) StopAll();
 		printf("\r\033[A");
 	}
-	score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
+	score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / 900;
 	totalscore += score;
-	wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
+	wr = 100 * wins / 900; as = wins > 0 ? sum / wins : 0;
 	printf("Test 01: winrate=%d%% av.steps=%d score=%d\n", wr, as, score);
 	logfile << "#####\tTest 01: winrate=" << wr << "% av.steps=" << as << " score=" << score << "\n";
 
-	//Test 02 	one line O at wall
-	logfile << "#####\tStarting Test 02...\n";
+	//Test 02-03 	one line O at wall
+	logfile << "#####\tStarting Test 02-03...\n";
 	wins = 0; sum = 0;
-	for (int i = 0; i < N_TESTS; i++)
+	for (int i = 0; i < 2772; i++)
 	{
-		int ax = 1 + rand() % 6, ay = 1 + rand() % 6;
-		if (rand() % 2 == 0) ax = (rand() % 2 == 0) ? 0 : 7;
-		else ay = (rand() % 2 == 0) ? 0 : 7;
-		int gx = ax, gy = ay;
-		if (rand() % 2 == 0) while (gx == ax) gx = rand() % 8;
-		else while (gy == ay) gy = rand() % 8;
+		int ax, ay, Ox, Oy, gx, gy, rn;
+		ax = axarr[900 + i];
+		ay = ayarr[900 + i];
+		Ox = Oxarr[900 + i];
+		Oy = Oyarr[900 + i];
+		gx = gxarr[900 + i];
+		gy = gyarr[900 + i];
+		rn = rnarr[900 + i];
+		char lab[8][8];
 		MakeLab(lab, ax, ay, ax, ay, gx, gy, 0);
 		//test
-		printf("Test 02: %d/%d             \n", i, N_TESTS);
+		printf("Test 02-03: %d/%d             \n", i, 2772);
 		int res = GoTest(lab, PRINT_STEPS, p);
 		if (res > 0) { wins++; sum += res; }
 		else if (res == -2) StopAll();
 		printf("\r\033[A");
 	}
-	score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
+	score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / 2772;
 	totalscore += score;
-	wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
-	printf("Test 02: winrate=%d%% av.steps=%d score=%d\n", wr, as, score);
+	wr = 100 * wins / 2772; as = wins > 0 ? sum / wins : 0;
+	printf("Test 02-03: winrate=%d%% av.steps=%d score=%d\n", wr, as, score);
 	logfile << "#####\tTest 02: winrate=" << wr << "% av.steps=" << as << " score=" << score << "\n";
 
-	//Test 03 	all in corners
-	logfile << "#####\tStarting Test 03...\n";
-	wins = 0; sum = 0;
-	for (int i = 0; i < N_TESTS; i++)
-	{
-		int ax = (rand() % 2 == 0) ? 0 : 7, ay = (rand() % 2 == 0) ? 0 : 7;
-		int gx = ax, gy = ay;
-		while (gx == ax && gy == ay)
-		{
-			gx = (rand() % 2 == 0) ? 0 : 7;
-			gy = (rand() % 2 == 0) ? 0 : 7;
-		}
-		MakeLab(lab, ax, ay, ax, ay, gx, gy, 0);
-		//test
-		printf("Test 03: %d/%d             \n", i, N_TESTS);
-		int res = GoTest(lab, PRINT_STEPS, p);
-		if (res > 0) { wins++; sum += res; }
-		else if (res == -2) StopAll();
-		printf("\r\033[A");
-	}
-	score = 100 * (wins * STEPS_LIMIT - sum) / STEPS_LIMIT / N_TESTS;
-	totalscore += score;
-	wr = 100 * wins / N_TESTS; as = wins > 0 ? sum / wins : 0;
-	printf("Test 03: winrate=%d%% av.steps=%d score=%d\n", wr, as, score);
-	logfile << "#####\tTest 03: winrate=" << wr << "% av.steps=" << as << " score=" << score << "\n";
+	*/
+	/*
 	//Test 04 	at 1 line with 1 #
 	logfile << "#####\tStarting Test 04...\n";
 	wins = 0; sum = 0;
@@ -857,165 +865,215 @@ void AntoninaAPI::demonstrate(Perceptron* p)
 	logfile << "#####\tTest 13: winrate=" << wr << "% av.steps=" << as << " score=" << score << "\n";
 	*/
 	//end
+	for (int l = 0; l < 10; l++)
+	{
+		printf("\033[B");
+	}
 	cout << "Total score = " << totalscore << endl;
 	logfile << "#####\tAll done!\n";
 	logfile.close();
 }
 
-int* AntoninaAPI::solveFitness(Perceptron** neuros, int population, int tests_to_run) {
-	int* fitness = new int[population];
-
-	std::ifstream fin("Test0.csv");
-	if (!fin.is_open()) {
-		std::cerr << "Ошибка открытия Test0.csv" << std::endl;
-		for (int i = 0; i < population; i++) fitness[i] = 0;
-		return fitness;
+int AntoninaAPI::GoTestImproved(char lab[][8], int& min_rover_to_bucket, int& min_bucket_to_pad, bool& bucket_picked, bool doprint, Perceptron* p)
+{
+	if (doprint) {
+		logfile << "#\tNew test... ";
 	}
 
-	int total_tests = 0;
-	std::string line;
-	while (std::getline(fin, line)) total_tests++;
-	if (total_tests == 0) {
-		std::cerr << "Test0.csv пустой!" << std::endl;
-		for (int i = 0; i < population; i++) fitness[i] = 0;
-		fin.close();
-		return fitness;
-	}
-	fin.clear();
+	bucket_picked = false;
+	bool rover_has_bucket = false; 
 
-	int actual_tests = std::min(tests_to_run, total_tests);
-	if (actual_tests <= 0) actual_tests = total_tests; 
-	fin.seekg(0);
-
-	const int SUCCESS_BASE = 500;            // базовая награда за доставку
-	const int SUCCESS_STEP_BONUS = 5;        // бонус за каждый незатраченный шаг
-	const int CLOSE_BONUS = 10;              // бонус за сокращение манхэттен-расстояния
-	const int FAIL_PENALTY = -50;           // штраф за неудачу
-	const int TERMINATE_PENALTY = -300;      // штраф за аварийное прерывание
-
-	for (int neur = 0; neur < population; neur++) {
-		Perceptron* p = &(*neuros)[neur];
-		long long total_score = 0;
-
-		fin.clear();
-		fin.seekg(0);
-
-		for (int test_idx = 0; test_idx < actual_tests; test_idx++) {
-			int ax, ay, Ox, Oy, gx, gy, rn;
-			fin >> ax >> ay >> Ox >> Oy >> gx >> gy >> rn;
-				
-
-			char lab[8][8];
-			MakeLab(lab, ax, ay, ax, ay, gx, gy, 0);
-
-			int initial_distance = abs(Ox - gx) + abs(Oy - gy);
-			int min_distance = initial_distance;
-
-
-			int result = GoTest(lab, min_distance, false, p);
-
-			if (result > 0) {
-				int step_bonus = std::max(0, STEPS_LIMIT - result);
-				int reward = SUCCESS_BASE + step_bonus * SUCCESS_STEP_BONUS;
-				total_score += reward;
-			}
-			else {
-				if (result == -2) {
-					total_score += TERMINATE_PENALTY;
-				}
-				else {
-					int distance_reduction = initial_distance - min_distance;
-					if (distance_reduction > 0) {
-						total_score += distance_reduction * CLOSE_BONUS;
-					}
-					else {
-						total_score += FAIL_PENALTY;
-					}
-				}
+	for (int s = 1; s < STEPS_LIMIT + 1; s++)
+	{
+		if (doprint)
+		{
+			sleep_for(std::chrono::milliseconds(TIME_TO_SLEEP));
+			printf("Step: %d / %d                       \n", s, STEPS_LIMIT);
+			PrintLab(lab);
+			for (int l = 0; l < 10; l++)
+			{
+				printf("\r\033[A");
 			}
 		}
-		int avg_score = 0;
-		if (actual_tests > 0) avg_score = static_cast<int>(total_score / actual_tests);
-		fitness[neur] = avg_score;
+
+		char copy[8][8];
+		int ax, ay, Ox, Oy, gx, gy;
+		CopyLab(lab, copy, &ax, &ay, &Ox, &Oy, &gx, &gy);
+
+
+		int current_rover_to_bucket = abs(ax - gx) + abs(ay - gy);
+		min_rover_to_bucket = std::min(min_rover_to_bucket, current_rover_to_bucket);
+
+		int current_bucket_to_pad = abs(Ox - gx) + abs(Oy - gy);
+		min_bucket_to_pad = std::min(min_bucket_to_pad, current_bucket_to_pad);
+
+
+		if (current_rover_to_bucket == 0 ||
+			(ax == gx && abs(ay - gy) == 1) ||
+			(ay == gy && abs(ax - gx) == 1)) {
+			bucket_picked = true;
+			rover_has_bucket = true;
+		}
+
+		char c = Move(copy, p);
+		if (c == 'x') {
+			if (doprint) logfile << " terminated at step " << s << "!\n";
+			return -1;
+		}
+		if (c == 'q') {
+			if (doprint) logfile << " terminated!\n";
+			return -2;
+		}
+
+	
+		int tox = ax, toy = ay, totox = ax, totoy = ay, pullx = ax, pully = ay;
+		bool toB = true, totoB = true, pullB = true;
+		switch (c)
+		{
+		case 'u': tox--; totox -= 2; pullx++; toB = (tox >= 0); totoB = (totox >= 0); pullB = (pullx < 8); break;
+		case 'd': tox++; totox += 2; pullx--; toB = (tox < 8); totoB = (totox < 8); pullB = (pullx >= 0); break;
+		case 'l': toy--; totoy -= 2; pully++; toB = (toy >= 0); totoB = (totoy >= 0); pullB = (pully < 8); break;
+		case 'r': toy++; totoy += 2; pully--; toB = (toy < 8); totoB = (totoy < 8); pullB = (pully >= 0); break;
+		default: break;
+		}
+
+		if (!toB) continue;
+
+		if (lab[tox][toy] == '.' || lab[tox][toy] == 'O')
+		{
+			lab[tox][toy] = (lab[tox][toy] == '.') ? 'a' : '@';
+			if (!pullB || lab[pullx][pully] == '.' || lab[pullx][pully] == 'O') {
+				lab[ax][ay] = (lab[ax][ay] == 'a') ? '.' : 'O';
+				continue;
+			}
+			if (lab[pullx][pully] == '%' && lab[ax][ay] == '@') {
+				if (doprint) logfile << " done in " << s << " steps!\n";
+				return s;
+			}
+			if (lab[pullx][pully] == '#' && lab[ax][ay] == '@') {
+				lab[ax][ay] = 'O';
+				continue;
+			}
+			lab[ax][ay] = lab[pullx][pully];
+			lab[pullx][pully] = '.';
+			continue;
+		}
+
+		if (lab[tox][toy] == '%')
+		{
+			if (!totoB || lab[totox][totoy] == '#') continue;
+			if (lab[totox][totoy] == '.') {
+				lab[tox][toy] = 'a';
+				lab[ax][ay] = (lab[ax][ay] == 'a') ? '.' : 'O';
+				lab[totox][totoy] = '%';
+				continue;
+			}
+			if (lab[totox][totoy] == 'O') {
+				if (doprint) logfile << " done in " << s << " steps!\n";
+				return s;
+			}
+		}
+
+		if (lab[tox][toy] == '#')
+		{
+			if (!totoB || lab[totox][totoy] != '.') continue;
+			lab[tox][toy] = 'a';
+			lab[ax][ay] = (lab[ax][ay] == 'a') ? '.' : 'O';
+			lab[totox][totoy] = '#';
+			continue;
+		}
 	}
 
-	fin.close();
-	return fitness;
+	if (doprint) logfile << " fail!\n";
+	return -1;
 }
 
 
 int AntoninaAPI::solveFitness(Perceptron* p, int tests_to_run) {
+	int actual_tests = std::min(tests_to_run, ALL_TESTS);
+	if (actual_tests <= 0) actual_tests = ALL_TESTS;
 
-	std::ifstream fin("Test0.csv");
-	if (!fin.is_open()) {
-		std::cerr << "Ошибка открытия Test0.csv" << std::endl;
-		return 0;
-	}
+	const int SUCCESS_BASE = 1000;              // Базовая награда за доставку
+	const int SUCCESS_STEP_BONUS = 15;          // Бонус за скорость (увеличен!)
 
-	int total_tests = 0;
-	std::string line;
-	while (std::getline(fin, line)) total_tests++;
-	if (total_tests == 0) {
-		std::cerr << "Test0.csv пустой!" << std::endl;
-		fin.close();
-		return 0;
-	}
-	fin.clear();
+	const int DISTANCE_REDUCTION_BONUS = 25;    // За каждую клетку приближения
+	const int PICKED_BUCKET_BONUS = 400;        // Бонус за взятие ведра
+	const int BUCKET_TO_PAD_BONUS = 20;         // За приближение ведра к площадке
 
-	int actual_tests = std::min(tests_to_run, total_tests);
-	if (actual_tests <= 0) actual_tests = total_tests;
-	fin.seekg(0);
+	const int NO_PROGRESS_PENALTY = 5;          // Небольшой штраф за отсутствие прогресса
+	const int TERMINATE_PENALTY = 100;          // Штраф за критическую ошибку
 
-	const int SUCCESS_BASE = 500;            // базовая награда за доставку
-	const int SUCCESS_STEP_BONUS = 5;        // бонус за каждый незатраченный шаг
-	const int CLOSE_BONUS = 10;              // бонус за сокращение манхэттен-расстояния
-	const int FAIL_PENALTY = -50;           // штраф за неудачу
-	const int TERMINATE_PENALTY = -300;      // штраф за аварийное прерывание
-
+	const int BASE_SCORE = 50;                  // Минимальные очки за попытку
 
 	long long total_score = 0;
 
-	fin.clear();
-	fin.seekg(0);
-
-	for (int test_idx = 0; test_idx < actual_tests; test_idx++) {
-		int ax, ay, Ox, Oy, gx, gy, rn;
-		fin >> ax >> ay >> Ox >> Oy >> gx >> gy >> rn;
-
+	for (int i = 0; i < actual_tests; i++) {
+		int ax = axarr[i];
+		int ay = ayarr[i];
+		int Ox = Oxarr[i];
+		int Oy = Oyarr[i];
+		int gx = gxarr[i];
+		int gy = gyarr[i];
+		int rn = rnarr[i];
 
 		char lab[8][8];
 		MakeLab(lab, ax, ay, ax, ay, gx, gy, 0);
 
-		int initial_distance = abs(Ox - gx) + abs(Oy - gy);
-		int min_distance = initial_distance;
+		int initial_rover_to_bucket = abs(ax - gx) + abs(ay - gy);
+		int initial_bucket_to_pad = abs(Ox - gx) + abs(Oy - gy);
 
 
-		int result = GoTest(lab, min_distance, false, p);
+		int min_rover_to_bucket = initial_rover_to_bucket;
+		int min_bucket_to_pad = initial_bucket_to_pad;
+		bool bucket_was_picked = false;
+
+		int result = GoTestImproved(lab, min_rover_to_bucket, min_bucket_to_pad,
+			bucket_was_picked, false, p);
+
+		int test_score = BASE_SCORE;  
 
 		if (result > 0) {
-			int step_bonus = std::max(0, STEPS_LIMIT - result);
-			int reward = SUCCESS_BASE + step_bonus * SUCCESS_STEP_BONUS;
-			total_score += reward;
+
+			test_score += SUCCESS_BASE;
+
+			int steps_saved = std::max(0, STEPS_LIMIT - result);
+			test_score += steps_saved * SUCCESS_STEP_BONUS;
+
+			if (result <= STEPS_LIMIT / 2) {
+				test_score += 200;  
+			}
 		}
 		else {
 			if (result == -2) {
-				total_score += TERMINATE_PENALTY;
+				test_score = std::max(0, test_score - TERMINATE_PENALTY);
 			}
 			else {
-				int distance_reduction = initial_distance - min_distance;
-				if (distance_reduction > 0) {
-					total_score += distance_reduction * CLOSE_BONUS;
+				int rover_progress = initial_rover_to_bucket - min_rover_to_bucket;
+				if (rover_progress > 0) {
+					test_score += rover_progress * DISTANCE_REDUCTION_BONUS;
 				}
-				else {
-					total_score += FAIL_PENALTY;
+				if (bucket_was_picked) {
+					test_score += PICKED_BUCKET_BONUS;
+					int bucket_progress = initial_bucket_to_pad - min_bucket_to_pad;
+					if (bucket_progress > 0) {
+						test_score += bucket_progress * BUCKET_TO_PAD_BONUS;
+					}
+					if (min_bucket_to_pad <= 2) {
+						test_score += 150;  
+					}
+				}
+				if (rover_progress <= 0 && !bucket_was_picked) {
+					test_score = std::max(BASE_SCORE, test_score - NO_PROGRESS_PENALTY);
 				}
 			}
 		}
+
+		total_score += test_score;
 	}
+
 	int avg_score = 0;
-	if (actual_tests > 0) avg_score = total_score / actual_tests;
-
-
-	fin.close();
+	if (actual_tests > 0) {
+		avg_score = static_cast<int>(total_score / actual_tests);
+	}
 	return avg_score;
 }

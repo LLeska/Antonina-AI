@@ -26,6 +26,14 @@ private:
 public:    
     bool isInitialized();
 
+    void mutate(double sigma, double prob);
+
+    void adaptMutationGlobals(bool improved, int stagnation, double min_eps = 0.01, double max_eps = 1.0,double min_prob = 0.001, double max_prob = 0.5);
+
+    double getEpsilon();
+
+    double getNotMutation();
+
     Perceptron(double learningRate_, int layers_length_, int* sizes);
 
     Perceptron();

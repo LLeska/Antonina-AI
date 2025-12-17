@@ -6,21 +6,27 @@
 
 
 int main() {
-    int* sizes = new int[5] { 64, 32, 16, 8, 4 };
-    int population = 100;
-    NeuroEvolution ne(0.01, 5, sizes, 10, population);
-
+    double learning_rate = 0.01;
+    int length = 5;
+    int* sizes = new int[length] { 64, 32, 16, 8, 4 };
+    int parent_size = 50;
+    int population = 1000;
+    
+    NeuroEvolution ne(learning_rate, length, sizes, parent_size, population);
     AntoninaAPI environment;
-    int start = 58;
+    
+    int start = 5000;
+
+
     ne.readFromFile("models/gen_" + std::to_string(start) + ".csv");
 
-    for (int gen = start; gen < 1000 + start; gen++) {
+    for (int gen = start; gen < 1000001; gen++) {
         std::cout << "gen " << gen << std::endl;
         int* fitness = new int[population];
         std::thread* threads = new std::thread[population];
 
         for (int i = 0; i < population; i++) {
-            Perceptron* neuron = &(ne.getNeuros()[i]);
+            Perceptron* neuron = ne.getNeuros(i);
             threads[i] = std::thread(
                 [neuron, &environment, fitness, i]() {
                     fitness[i] = environment.solveFitness(neuron, 0);
@@ -55,7 +61,7 @@ int main() {
 
         ne.evolution();
 
-        if (gen % 10 == 0) {
+        if (gen % 50 == 0) {
             environment.demonstrate(ne.demonstrate());
         }
 

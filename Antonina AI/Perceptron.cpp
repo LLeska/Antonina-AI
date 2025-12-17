@@ -3,8 +3,8 @@
 #include <iostream>
 #include <chrono>
 
-double EPSILON_ = 0.3;
-double NOT_MUTAHION_ = 0.08;
+double EPSILON_ = 0.1;
+double NOT_MUTAHION_ = 0.04;
 
 template<typename T>
 T Perceptron::random_in_range(T a, T b) {
@@ -171,40 +171,88 @@ void Perceptron::backpropagation(double* targets) {
 Perceptron::Perceptron(Perceptron* p1, Perceptron* p2) {
     learningRate = p1->learningRate;
     length = p1->length;
-    layers = new Layer[length];
     EPSILON = EPSILON_;
     NOT_MUTAHION = NOT_MUTAHION_;
 
+    layers = new Layer[length];
+
+    static thread_local std::mt19937 gen((unsigned)std::chrono::high_resolution_clock::now().time_since_epoch().count());
+    std::uniform_real_distribution<double> uni01(0.0, 1.0);
+
     for (int i = 0; i < length; i++) {
-        layers[i] = Layer(p1->layers[i].size,
-            p1->layers[i].nextSize);
-        for (int j = 0; j < layers[i].nextSize; j++) {
-            // биас случайно от одного из родителей
-            if (random_in_range(0.0, 1.0) > 0.5) {
-                layers[i].biases[j] = p1->layers[i].biases[j];
-            }
-            else {
-                layers[i].biases[j] = p2->layers[i].biases[j];
-            }
-            // каждый вес случайно от одного из родителей
-            for (int k = 0; k < layers[i].size; k++) {
-                if (random_in_range(0.0, 1.0) > 0.5) {
-                    layers[i].weights[j][k] = p1->layers[i].weights[j][k];
-                }
-                else {
-                    layers[i].weights[j][k] = p2->layers[i].weights[j][k];
-                }
-                // Мутация с вероятностью NOT_MUTAHION
-                if (random_in_range(0.0, 1.0) < NOT_MUTAHION) {
-                    layers[i].weights[j][k] += random_in_range(-1.0, 1.0) * EPSILON;
-                }
-            }
-            // Мутация биаса
-            if (random_in_range(0.0, 1.0) < NOT_MUTAHION) {
-                layers[i].biases[j] += random_in_range(-1.0, 1.0) * EPSILON;
+        int size = p1->layers[i].size;
+        int nextSize = p1->layers[i].nextSize;
+        layers[i] = Layer(size, nextSize);
+
+        if (nextSize <= 0) continue;
+
+        for (int j = 0; j < nextSize; j++) {
+            double alpha = uni01(gen);
+            layers[i].biases[j] = alpha * p1->layers[i].biases[j] + (1.0 - alpha) * p2->layers[i].biases[j];
+            for (int k = 0; k < size; k++) {
+                double alpha_w = uni01(gen);
+                layers[i].weights[j][k] = alpha_w * p1->layers[i].weights[j][k] + (1.0 - alpha_w) * p2->layers[i].weights[j][k];
             }
         }
     }
+}
+
+void Perceptron::mutate(double sigma, double prob) {
+    if (sigma > 0.0) EPSILON = sigma;
+    if (prob >= 0.0) NOT_MUTAHION = prob;
+
+    static thread_local std::mt19937 gen((unsigned)std::chrono::high_resolution_clock::now().time_since_epoch().count());
+    std::uniform_real_distribution<double> uni01(0.0, 1.0);
+    std::normal_distribution<double> gauss(0.0, EPSILON);
+    const double WEIGHT_MIN = -10.0;
+    const double WEIGHT_MAX = 10.0;
+
+    for (int l = 0; l < length; l++) {
+        int size = layers[l].size;
+        int nextSize = layers[l].nextSize;
+        if (nextSize <= 0) continue;
+
+        for (int j = 0; j < nextSize; j++) {
+            if (uni01(gen) < NOT_MUTAHION) {
+                layers[l].biases[j] += gauss(gen);
+                layers[l].biases[j] = std::clamp(layers[l].biases[j], WEIGHT_MIN, WEIGHT_MAX);
+            }
+
+            for (int k = 0; k < size; k++) {
+                if (uni01(gen) < NOT_MUTAHION) {
+                    layers[l].weights[j][k] += gauss(gen);
+                    layers[l].weights[j][k] = std::clamp(layers[l].weights[j][k], WEIGHT_MIN, WEIGHT_MAX);
+                }
+            }
+        }
+    }
+}
+
+void Perceptron::adaptMutationGlobals(bool improved, int stagnation, double min_eps, double max_eps, double min_prob, double max_prob) {
+    const double DECAY = 0.92;   
+    const double GROW = 1.08;    
+
+    if (improved) {
+        EPSILON_ = std::max(min_eps, EPSILON_ * DECAY);
+        NOT_MUTAHION_ = std::max(min_prob, NOT_MUTAHION_ * DECAY);
+    }
+    else {
+
+        double factor = std::pow(GROW, std::min(stagnation, 20));
+        EPSILON_ = std::min(max_eps, EPSILON_ * factor);
+        NOT_MUTAHION_ = std::min(max_prob, NOT_MUTAHION_ * factor);
+    }
+
+    if (!std::isfinite(EPSILON_)) EPSILON_ = min_eps;
+    if (!std::isfinite(NOT_MUTAHION_)) NOT_MUTAHION_ = min_prob;
+}
+
+double Perceptron::getEpsilon() {
+    return EPSILON;
+}
+
+double Perceptron::getNotMutation() {
+    return NOT_MUTAHION;
 }
 
 int Perceptron::getOut() {

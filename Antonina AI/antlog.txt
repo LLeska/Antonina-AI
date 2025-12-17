@@ -1,17 +1,12 @@
 #####	Starting new Antonina runs!
-#####	STEPS_LIMIT=40	N_TESTS=20
+#####	STEPS_LIMIT=40
 #####	Starting Test 00...
 #	New test...  fail!
 #	New test...  fail!
 #	New test...  fail!
 #	New test...  fail!
 #	New test...  fail!
-#	New test...  fail!
-#	New test...  fail!
-#	New test...  fail!
-#	New test...  fail!
-#	New test...  done in 3 steps!
-#	New test...  fail!
+#	New test...  done in 1 steps!
 #	New test...  fail!
 #	New test...  fail!
 #	New test...  fail!
@@ -21,5 +16,350 @@
 #	New test...  fail!
 #	New test...  fail!
 #	New test...  fail!
-#####	Test 00: winrate=5% av.steps=3 score=4
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  done in 1 steps!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#	New test...  fail!
+#####	Test 00: winrate=11% av.steps=1 score=11
 #####	All done!
