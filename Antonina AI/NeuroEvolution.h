@@ -11,6 +11,10 @@ private:
 	Perceptron* neuros;
 	int* sizes;
 	int* fitness;
+	int best_fitness_ever;
+	int generations_without_improvement;
+	double current_epsilon;
+	double current_mutation_prob;
 	
 	template<typename T>
 	T random_in_range(T a, T b);

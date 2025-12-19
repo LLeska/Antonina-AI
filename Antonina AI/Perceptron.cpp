@@ -3,8 +3,8 @@
 #include <iostream>
 #include <chrono>
 
-double EPSILON_ = 0.1;
-double NOT_MUTAHION_ = 0.04;
+thread_local double EPSILON_ = 0.1;
+thread_local double NOT_MUTAHION_ = 0.04;
 
 template<typename T>
 T Perceptron::random_in_range(T a, T b) {

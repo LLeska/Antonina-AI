@@ -9,7 +9,7 @@ int main() {
     double learning_rate = 0.01;
     int length = 5;
     int* sizes = new int[length] { 64, 32, 16, 8, 4 };
-    int parent_size = 50;
+    int parent_size = 100;
     int population = 1000;
     
     NeuroEvolution ne(learning_rate, length, sizes, parent_size, population);
@@ -20,7 +20,11 @@ int main() {
 
     ne.readFromFile("models/gen_" + std::to_string(start) + ".csv");
 
-    for (int gen = start; gen < 1000001; gen++) {
+    for (int gen = start; gen < 1000001 + start; gen++) {
+        if (gen % 10 == 0) {
+
+            ne.writeInFile("models/gen_" + std::to_string(gen) + ".csv");
+        }
         std::cout << "gen " << gen << std::endl;
         int* fitness = new int[population];
         std::thread* threads = new std::thread[population];
@@ -64,8 +68,6 @@ int main() {
         if (gen % 50 == 0) {
             environment.demonstrate(ne.demonstrate());
         }
-
-        ne.writeInFile("models/gen_" + std::to_string(gen) + ".csv");
     }
 
     delete[] sizes;
