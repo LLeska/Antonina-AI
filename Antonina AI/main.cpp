@@ -15,7 +15,7 @@ int main() {
     NeuroEvolution ne(learning_rate, length, sizes, parent_size, population);
     AntoninaAPI environment;
     
-    int start = 5000;
+    int start = 8000;
 
 
     ne.readFromFile("models/gen_" + std::to_string(start) + ".csv");
