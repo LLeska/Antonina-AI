@@ -2,6 +2,8 @@
 #include <random>
 #include <iostream>
 #include <chrono>
+#include <climits>
+#include <algorithm>
 
 
 template<typename T>
@@ -356,8 +358,14 @@ Perceptron* NeuroEvolution::demonstrate() {
 void NeuroEvolution::deinit() {
 	if (sizes != nullptr) {
 		delete[] sizes;
+		sizes = nullptr;
 	}
 	if (neuros != nullptr) {
 		delete[] neuros;
+		neuros = nullptr;
+	}
+	if (fitness != nullptr) {
+		delete[] fitness;
+		fitness = nullptr;
 	}
 }

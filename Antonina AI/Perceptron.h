@@ -38,11 +38,15 @@ public:
 
     Perceptron();
 
-    Perceptron(Perceptron& p);
+    Perceptron(const Perceptron& p);
 
     Perceptron& operator=(const Perceptron& other);
 
     ~Perceptron();
+
+    Perceptron(Perceptron&& p);
+
+    Perceptron& operator=(Perceptron&& other);
 
     Perceptron(Perceptron* p1, Perceptron* p2);
 

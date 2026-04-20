@@ -2,6 +2,8 @@
 #include <random>
 #include <iostream>
 #include <chrono>
+#include <algorithm>
+#include <cmath>
 
 thread_local double EPSILON_ = 0.1;
 thread_local double NOT_MUTAHION_ = 0.04;
@@ -60,7 +62,7 @@ Perceptron::Perceptron() {
     layers = nullptr;
 }
 
-Perceptron::Perceptron(Perceptron& p) {
+Perceptron::Perceptron(const Perceptron& p) {
     EPSILON = p.EPSILON;
     NOT_MUTAHION = p.NOT_MUTAHION;
     learningRate = p.learningRate;
@@ -74,6 +76,30 @@ Perceptron::Perceptron(Perceptron& p) {
     else {
         layers = nullptr;
     }
+}
+
+Perceptron::Perceptron(Perceptron&& p) {
+    EPSILON = p.EPSILON;
+    NOT_MUTAHION = p.NOT_MUTAHION;
+    learningRate = p.learningRate;
+    length = p.length;
+    layers = p.layers;
+    p.layers = nullptr;
+    p.length = 0;
+}
+
+Perceptron& Perceptron::operator=(Perceptron&& p) {
+    if (this != &p) {
+        deInit();
+        EPSILON = p.EPSILON;
+        NOT_MUTAHION = p.NOT_MUTAHION;
+        learningRate = p.learningRate;
+        length = p.length;
+        layers = p.layers;
+        p.layers = nullptr;
+        p.length = 0;
+    }
+    return *this;
 }
 
 Perceptron::Perceptron(double learningRate_, int length_, int* sizes) {
