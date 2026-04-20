@@ -107,9 +107,6 @@ void NeuroEvolution::clearFitness() {
 }
 
 void NeuroEvolution::setFitness(int* fitness_) {
-	if (fitness == nullptr) {
-		fitness = new int[population];
-	}
 	for (int i = 0; i < population; i++) {
 		fitness[i] = fitness_[i];
 	}
@@ -181,6 +178,12 @@ void NeuroEvolution::evolution() {
 	int elite_count = std::max(20, population / 8);
 	int immigrants = std::max(50, population / 15);
 
+	std::cout << "elite_count=" << elite_count
+		<< " immigrants=" << immigrants
+		<< " elite+immigrants=" << elite_count + immigrants
+		<< " population=" << population << std::endl;
+
+
 	int use_parents = std::min(parents_size, population);
 	std::unique_ptr<Perceptron[]> best(new Perceptron[use_parents]);
 	for (int i = 0; i < use_parents; ++i) best[i] = neuros[i];
@@ -249,10 +252,13 @@ void NeuroEvolution::evolution() {
 		nextGen[idx++] = child;
 	}
 
+	std::cout << "last idx written to nextGen=" << idx - 1 << std::endl;
+
 	for (int i = population - immigrants; i < population; ++i) {
 		Perceptron random_one(learningRate, length, sizes);
 		nextGen[i] = random_one;
 	}
+
 
 	delete[] neuros;
 	neuros = nextGen.release();
@@ -285,6 +291,11 @@ void NeuroEvolution::readFromFile(std::ifstream* fin) {
 		>> best_fitness_ever >> generations_without_improvement
 		>> current_epsilon >> current_mutation_prob;
 
+	std::cout << "Read header: lr=" << learningRate
+		<< " len=" << length
+		<< " pop=" << population_
+		<< " parents=" << parents_size_ << std::endl;
+
 	int* new_sizes = new int[length];
 	for (int i = 0; i < length; i++) {
 		*fin >> new_sizes[i];
@@ -296,16 +307,17 @@ void NeuroEvolution::readFromFile(std::ifstream* fin) {
 	neuros = new_neuros;
 	int old_population = population;
 	population = allocated;
-	for (int i = 0; i < std::min(old_population, population_); i++) {
+	int actually_read = 0;
+	for (int i = 0; i < population_; i++) {
+		if (fin->fail() || fin->eof()) break;
 		neuros[i].readFromFile(fin);
+		if (neuros[i].isInitialized()) actually_read++;
 	}
-	for (int i = std::min(old_population, population_); i < population_; i++) {
-		neuros[i].readFromFile(fin);
-	}
-	for (int i = population_; i < allocated; i++) {
+	for (int i = actually_read; i < population; i++) {
 		Perceptron p(learningRate, length, sizes);
 		neuros[i] = p;
 	}
+
 	parents_size = parents_size_;
 	clearFitness();
 

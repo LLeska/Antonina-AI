@@ -318,26 +318,35 @@ Perceptron::~Perceptron() {
 
 void Perceptron::deInit() {
     if (layers) {
-        for (int i = 0; i < length; i++) {
-            layers[i].deInit();
-        }
-        delete[] layers;
+        delete[] layers;  
         layers = nullptr;
     }
+    length = 0;
 }
 
+
 void Perceptron::readFromFile(std::ifstream* fin) {
-    if (!fin->is_open()) {
-        std::cerr << "Ошибка открытия файла" << std::endl;
+    if (!fin->is_open() || fin->fail()) {
+        std::cerr << "Ошибка потока перед чтением Perceptron" << std::endl;
         return;
     }
     this->deInit();
     *fin >> learningRate >> length;
+    if (fin->fail() || length <= 0 || length > 100) {
+        std::cerr << "Некорректный length=" << length << std::endl;
+        length = 0;
+        return;
+    }
     layers = new Layer[length];
     for (int i = 0; i < length; i++) {
         layers[i].readFromFile(fin);
+        if (fin->fail()) {
+            std::cerr << "Ошибка чтения Layer " << i << std::endl;
+            break;
+        }
     }
 }
+
 
 void Perceptron::writeInFile(std::ofstream* fout) {
     *fout << learningRate << ' ' << length << '\n';

@@ -1,5 +1,7 @@
 #include "Layer.h"
 #include <fstream>    
+#include <iostream>
+#include <cassert>
 
 Layer::Layer() {
     size = 0;
@@ -10,6 +12,9 @@ Layer::Layer() {
 }
 
 Layer::Layer(int _size, int _nextSize) {
+    assert(_size > 0 && _size < 10000);
+    assert(_nextSize >= 0 && _nextSize < 10000);
+
     size = _size;
     nextSize = _nextSize;
     neurons = new double[size]();
@@ -56,6 +61,9 @@ Layer& Layer::operator=(const Layer& l) {
 
     int new_size = l.size;
     int new_next = l.nextSize;
+
+    assert(new_size > 0 && new_size < 10000);
+    assert(new_next >= 0 && new_next < 10000);
 
     double* new_neurons = new double[new_size]();
     for (int i = 0; i < new_size; i++) new_neurons[i] = l.neurons[i];
@@ -117,9 +125,13 @@ Layer& Layer::operator=(Layer&& l) {
 void Layer::readFromFile(std::ifstream* fin) {
     this->deInit();
     *fin >> size >> nextSize;
+    if (fin->fail() || size <= 0 || size > 10000 || nextSize < 0 || nextSize > 10000) {
+        std::cerr << "Некорректный Layer: size=" << size << " nextSize=" << nextSize << std::endl;
+        size = 0; nextSize = 0;
+        return;
+    }
     neurons = new double[size]();
-    *fin >> neurons[0];
-    for (int i = 1; i < size; i++) {
+    for (int i = 0; i < size; i++) {
         *fin >> neurons[i];
     }
     if (nextSize > 0) {
@@ -128,8 +140,7 @@ void Layer::readFromFile(std::ifstream* fin) {
         for (int i = 0; i < nextSize; i++) {
             weights[i] = new double[size];
         }
-        *fin >> biases[0];
-        for (int i = 1; i < nextSize; i++) {
+        for (int i = 0; i < nextSize; i++) {
             *fin >> biases[i];
         }
         for (int i = 0; i < nextSize; i++) {
@@ -142,15 +153,15 @@ void Layer::readFromFile(std::ifstream* fin) {
 
 void Layer::writeInFile(std::ofstream* fout) {
     *fout << size << ' ' << nextSize << '\n';
-    *fout << neurons[0];
-    for (int i = 1; i < size; i++) {
-        *fout << ' ' << neurons[i];
+    for (int i = 0; i < size; i++) {
+        if (i > 0) *fout << ' ';
+        *fout << neurons[i];
     }
     *fout << '\n';
     if (nextSize > 0) {
-        *fout << biases[0];
-        for (int i = 1; i < nextSize; i++) {
-            *fout << ' ' << biases[i];
+        for (int i = 0; i < nextSize; i++) {
+            if (i > 0) *fout << ' ';
+            *fout << biases[i];
         }
         *fout << '\n';
         for (int i = 0; i < nextSize; i++) {
