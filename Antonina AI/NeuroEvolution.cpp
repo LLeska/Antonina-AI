@@ -28,12 +28,8 @@ int NeuroEvolution::partition(int low, int high) {
 	for (int j = low; j < high; j++) {
 		if (fitness[j] >= pivot) {
 			i++;
-			Perceptron p = neuros[i];
-			neuros[i] = neuros[j];
-			neuros[j] = p;
-			int temp = fitness[i];
-			fitness[i] = fitness[j];
-			fitness[j] = temp;
+			std::swap(neuros[i], neuros[j]);
+			std::swap(fitness[i], fitness[j]);
 		}
 	}
 	int temp = fitness[i + 1];
@@ -170,7 +166,7 @@ void NeuroEvolution::evolution() {
 			<< " gens! Best was: " << best_fitness_ever << std::endl;
 
 		int survivors = population / 20;  
-		Perceptron* saved = new Perceptron[survivors];
+		std::unique_ptr<Perceptron[]> saved(new Perceptron[survivors]);
 		for (int i = 0; i < survivors; ++i) saved[i] = neuros[i];
 
 		for (int i = survivors; i < population; ++i) {
@@ -178,13 +174,11 @@ void NeuroEvolution::evolution() {
 			neuros[i] = random_one;
 		}
 
-		
 		for (int i = 0; i < survivors; ++i) neuros[i] = saved[i];
-		delete[] saved;
 
 		generations_without_improvement = 0;
 		current_epsilon = 2.0; 
-		current_mutation_prob = 0.6;
+		current_mutation_prob = 0.6; 
 		clearFitness();
 		return;
 	}
@@ -193,10 +187,10 @@ void NeuroEvolution::evolution() {
 	int immigrants = std::max(50, population / 15);
 
 	int use_parents = std::min(parents_size, population);
-	Perceptron* best = new Perceptron[use_parents];
+	std::unique_ptr<Perceptron[]> best(new Perceptron[use_parents]);
 	for (int i = 0; i < use_parents; ++i) best[i] = neuros[i];
 
-	Perceptron* nextGen = new Perceptron[population];
+	std::unique_ptr<Perceptron[]> nextGen(new Perceptron[population]);
 
 	for (int i = 0; i < elite_count; ++i) {
 		nextGen[i] = neuros[i];
@@ -265,9 +259,8 @@ void NeuroEvolution::evolution() {
 		nextGen[i] = random_one;
 	}
 
-	delete[] best;
 	delete[] neuros;
-	neuros = nextGen;
+	neuros = nextGen.release();
 	clearFitness();
 }
 
@@ -297,19 +290,28 @@ void NeuroEvolution::readFromFile(std::ifstream* fin) {
 		>> best_fitness_ever >> generations_without_improvement
 		>> current_epsilon >> current_mutation_prob;
 
-	sizes = new int[length];
+	int* new_sizes = new int[length];
 	for (int i = 0; i < length; i++) {
-		*fin >> sizes[i];
+		*fin >> new_sizes[i];
 	}
 
-	neuros = new Perceptron[std::max(population, population_)];
-	for (int i = 0; i < std::min(population, population_); i++) {
+	int allocated = std::max(population, population_);
+	Perceptron* new_neuros = new Perceptron[allocated];  
+	sizes = new_sizes;
+	neuros = new_neuros;
+	int old_population = population;
+	population = allocated;
+	for (int i = 0; i < std::min(old_population, population_); i++) {
 		neuros[i].readFromFile(fin);
 	}
-	for (int i = 0; i < population - population_; i++) {
-		Perceptron p(learningRate, length, sizes);
-		neuros[population_ + i] = p;
+	for (int i = std::min(old_population, population_); i < population_; i++) {
+		neuros[i].readFromFile(fin);
 	}
+	for (int i = population_; i < allocated; i++) {
+		Perceptron p(learningRate, length, sizes);
+		neuros[i] = p;
+	}
+	parents_size = parents_size_;
 
 	std::cout << "Loaded: best=" << best_fitness_ever
 		<< " stagnation=" << generations_without_improvement
@@ -324,6 +326,8 @@ void NeuroEvolution::readFromFile(std::ifstream* fin) {
 		std::cout << "Reset to: eps=" << current_epsilon
 			<< " prob=" << current_mutation_prob << std::endl;
 	}
+
+
 }
 
 

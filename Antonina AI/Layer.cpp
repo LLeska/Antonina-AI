@@ -52,33 +52,35 @@ Layer::Layer(const Layer& l) {
 }
 
 Layer& Layer::operator=(const Layer& l) {
-    if (this != &l) {
-        deInit();
-        size = l.size;
-        nextSize = l.nextSize;
-        if (size > 0) {
-            neurons = new double[size];
-            for (int i = 0; i < size; i++) {
-                neurons[i] = l.neurons[i];
-            }
-        }
+    if (this == &l) return *this;
 
-        if (nextSize > 0) {
-            biases = new double[nextSize];
-            weights = new double* [nextSize];
-            for (int i = 0; i < nextSize; i++) {
-                weights[i] = new double[size];
-                biases[i] = l.biases[i];
-                for (int j = 0; j < size; j++) {
-                    weights[i][j] = l.weights[i][j];
-                }
-            }
-        }
-        else {
-            biases = nullptr;
-            weights = nullptr;
+    int new_size = l.size;
+    int new_next = l.nextSize;
+
+    double* new_neurons = new double[new_size]();
+    for (int i = 0; i < new_size; i++) new_neurons[i] = l.neurons[i];
+
+    double* new_biases = nullptr;
+    double** new_weights = nullptr;
+
+    if (new_next > 0) {
+        new_biases = new double[new_next];
+        new_weights = new double* [new_next];
+        for (int i = 0; i < new_next; i++) new_weights[i] = nullptr;
+        for (int i = 0; i < new_next; i++) {
+            new_weights[i] = new double[new_size];
+            new_biases[i] = l.biases[i];
+            for (int j = 0; j < new_size; j++)
+                new_weights[i][j] = l.weights[i][j];
         }
     }
+
+    deInit();
+    size = new_size;
+    nextSize = new_next;
+    neurons = new_neurons;
+    biases = new_biases;
+    weights = new_weights;
     return *this;
 }
 

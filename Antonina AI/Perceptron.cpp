@@ -150,6 +150,7 @@ Perceptron& Perceptron::operator=(const Perceptron& p) {
     }
     else {
         layers = nullptr;
+        layers = nullptr;
     }
     return *this;
 
@@ -157,7 +158,7 @@ Perceptron& Perceptron::operator=(const Perceptron& p) {
 
 void Perceptron::backpropagation(double* targets) {
     int last = length - 1;
-    double** deltas = new double* [length];
+    double** deltas = new double* [length]();  
     for (int i = 0; i < length; i++) {
         deltas[i] = new double[layers[i].size]();
     }
@@ -190,6 +191,7 @@ void Perceptron::backpropagation(double* targets) {
     }
     for (int i = 0; i < length; i++) {
         delete[] deltas[i];
+        deltas[i] = nullptr;
     }
     delete[] deltas;
 }
