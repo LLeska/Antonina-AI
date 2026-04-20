@@ -109,8 +109,9 @@ Perceptron::Perceptron(double learningRate_, int length_, int* sizes) {
     length = length_;
     layers = new Layer[length];
 
-    unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-    static std::default_random_engine generator(seed);
+    static thread_local std::mt19937 generator(
+        (unsigned)std::chrono::high_resolution_clock::now().time_since_epoch().count()
+    );
     std::uniform_real_distribution<double> distribution(-1.0, 1.0);
 
     for (int l = 0; l < length; l++) {
@@ -149,7 +150,6 @@ Perceptron& Perceptron::operator=(const Perceptron& p) {
         }
     }
     else {
-        layers = nullptr;
         layers = nullptr;
     }
     return *this;

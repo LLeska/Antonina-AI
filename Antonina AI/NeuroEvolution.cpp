@@ -166,7 +166,7 @@ void NeuroEvolution::evolution() {
 			neuros[i] = random_one;
 		}
 
-		for (int i = 0; i < survivors; ++i) neuros[i] = saved[i];
+		for (int i = 0; i < survivors; ++i) neuros[i] = std::move(saved[i]);
 
 		generations_without_improvement = 0;
 		current_epsilon = 2.0; 
@@ -249,7 +249,7 @@ void NeuroEvolution::evolution() {
 		}
 
 		child.mutate(eps, prob);
-		nextGen[idx++] = child;
+		nextGen[idx++] = std::move(child);
 	}
 
 	std::cout << "last idx written to nextGen=" << idx - 1 << std::endl;
@@ -302,7 +302,14 @@ void NeuroEvolution::readFromFile(std::ifstream* fin) {
 	}
 
 	int allocated = std::max(population, population_);
-	Perceptron* new_neuros = new Perceptron[allocated];  
+	Perceptron* new_neuros = nullptr;
+	try {
+		new_neuros = new Perceptron[allocated];
+	}
+	catch (...) {
+		delete[] new_sizes;
+		throw;
+	}
 	sizes = new_sizes;
 	neuros = new_neuros;
 	int old_population = population;
