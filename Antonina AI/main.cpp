@@ -21,6 +21,7 @@ int main() {
 
 
     ne.readFromFile("models/gen_" + std::to_string(start) + ".csv");
+    population = ne.getPopulation();
 
     for (int gen = start; gen < 1000001 + start; gen++) {
         if (gen % 10 == 0) {

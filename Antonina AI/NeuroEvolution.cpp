@@ -32,13 +32,8 @@ int NeuroEvolution::partition(int low, int high) {
 			std::swap(fitness[i], fitness[j]);
 		}
 	}
-	int temp = fitness[i + 1];
-	fitness[i + 1] = fitness[high];
-	fitness[high] = temp;
-	Perceptron p = neuros[i + 1];
-	neuros[i + 1] = neuros[high];
-	neuros[high] = p;
-
+	std::swap(fitness[i + 1], fitness[high]);
+	std::swap(neuros[i + 1], neuros[high]);
 	return i + 1;
 }
 
@@ -312,6 +307,7 @@ void NeuroEvolution::readFromFile(std::ifstream* fin) {
 		neuros[i] = p;
 	}
 	parents_size = parents_size_;
+	clearFitness();
 
 	std::cout << "Loaded: best=" << best_fitness_ever
 		<< " stagnation=" << generations_without_improvement
