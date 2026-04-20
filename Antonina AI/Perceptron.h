@@ -38,9 +38,13 @@ public:
 
     Perceptron();
 
-    Perceptron(Perceptron& p);
+    Perceptron(const Perceptron& p);
 
     Perceptron& operator=(const Perceptron& other);
+
+    Perceptron(Perceptron&& p) noexcept;
+
+    Perceptron& operator=(Perceptron&& other) noexcept;
 
     ~Perceptron();
 

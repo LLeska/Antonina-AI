@@ -17,6 +17,10 @@ public:
 
     Layer& operator=(const Layer& other);
 
+    Layer(Layer&& l) noexcept;
+
+    Layer& operator=(Layer&& other) noexcept;
+
     void readFromFile(std::ifstream* fin);
 
     void writeInFile(std::ofstream* fout);

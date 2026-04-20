@@ -2,6 +2,8 @@
 #include <random>
 #include <iostream>
 #include <chrono>
+#include <climits>
+#include <algorithm>
 
 
 template<typename T>
@@ -284,7 +286,7 @@ void NeuroEvolution::writeInFile(std::string file) {
 
 void NeuroEvolution::readFromFile(std::ifstream* fin) {
 	if (!fin->is_open()) {
-		std::cerr << "Ошибка открытия файла" << std::endl;
+		std::cerr << "пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ" << std::endl;
 		return;
 	}
 	this->deinit();
@@ -356,8 +358,14 @@ Perceptron* NeuroEvolution::demonstrate() {
 void NeuroEvolution::deinit() {
 	if (sizes != nullptr) {
 		delete[] sizes;
+		sizes = nullptr;
 	}
 	if (neuros != nullptr) {
 		delete[] neuros;
+		neuros = nullptr;
+	}
+	if (fitness != nullptr) {
+		delete[] fitness;
+		fitness = nullptr;
 	}
 }

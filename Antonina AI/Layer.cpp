@@ -82,6 +82,36 @@ Layer& Layer::operator=(const Layer& l) {
     return *this;
 }
 
+Layer::Layer(Layer&& l) noexcept {
+    size = l.size;
+    nextSize = l.nextSize;
+    neurons = l.neurons;
+    biases = l.biases;
+    weights = l.weights;
+    l.size = 0;
+    l.nextSize = 0;
+    l.neurons = nullptr;
+    l.biases = nullptr;
+    l.weights = nullptr;
+}
+
+Layer& Layer::operator=(Layer&& l) noexcept {
+    if (this != &l) {
+        deInit();
+        size = l.size;
+        nextSize = l.nextSize;
+        neurons = l.neurons;
+        biases = l.biases;
+        weights = l.weights;
+        l.size = 0;
+        l.nextSize = 0;
+        l.neurons = nullptr;
+        l.biases = nullptr;
+        l.weights = nullptr;
+    }
+    return *this;
+}
+
 void Layer::readFromFile(std::ifstream* fin) {
     this->deInit();
     *fin >> size >> nextSize;
@@ -136,20 +166,19 @@ void Layer::deInit() {
         delete[] neurons;
         neurons = nullptr;
     }
-    if (nextSize > 0)
-    {
-        if (biases != nullptr) {
-            delete[] biases;
-            biases = nullptr;
-        }
-        if (weights != nullptr) {
-            for (int i = 0; i < nextSize; i++) {
-                delete[] weights[i];
-            }
-            delete[] weights;
-            weights = nullptr;
-        }
+    if (biases != nullptr) {
+        delete[] biases;
+        biases = nullptr;
     }
+    if (weights != nullptr) {
+        for (int i = 0; i < nextSize; i++) {
+            delete[] weights[i];
+        }
+        delete[] weights;
+        weights = nullptr;
+    }
+    size = 0;
+    nextSize = 0;
 }
 
 Layer::~Layer() {
