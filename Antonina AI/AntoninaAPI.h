@@ -17,6 +17,9 @@ private:
 	int gxarr[4032];
 	int gyarr[4032];
 	int rnarr[4032];
+	char prebuilt_labs[360][8][8];
+	int  prebuilt_initial_r2b[360];
+	int  prebuilt_initial_b2p[360];	
 	void ClearLab(char lab[][8]);
 	void PrintLab(char lab[][8]);
 	bool MakeLab(char lab[][8], int ax, int ay, int Ox, int Oy, int gx, int gy, int rn, int rx[], int ry[]);
@@ -32,7 +35,10 @@ private:
 	void writeInFile();
 	char Move(char map[][8], Perceptron* p);
 	void demonstrate(Perceptron* p);
-	int GoTestImproved(char lab[][8], int& min_rover_to_bucket, int& min_bucket_to_pad, bool& bucket_picked, bool doprint, Perceptron* p);
+	int GoTestImproved(char lab[][8], int& min_rover_to_bucket, int& min_bucket_to_pad, bool& bucket_picked, bool doprint, Perceptron* p, int& shaping_score); 
 	int solveFitness(Perceptron* p, int tests_to_run);
+public:
+	int active_tests = 30;
+
 };
 

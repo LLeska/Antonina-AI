@@ -35,6 +35,11 @@ AntoninaAPI::AntoninaAPI(){
 	fin.clear();
 	fin.seekg(0);
 	fin.close();
+	for (int i = 0; i < ALL_TESTS; i++) {
+		MakeLab(prebuilt_labs[i], axarr[i], ayarr[i], axarr[i], ayarr[i], gxarr[i], gyarr[i], 0);
+		prebuilt_initial_r2b[i] = abs(axarr[i] - Oxarr[i]) + abs(ayarr[i] - Oyarr[i]);
+		prebuilt_initial_b2p[i] = abs(Oxarr[i] - gxarr[i]) + abs(Oyarr[i] - gyarr[i]);
+	}
 }
 
 char AntoninaAPI::Move(char map[][8], Perceptron* p) {
@@ -444,174 +449,156 @@ void AntoninaAPI::demonstrate(Perceptron* p)
 	logfile.close();
 }
 
-int AntoninaAPI::GoTestImproved(char lab[][8], int& min_rover_to_bucket, int& min_bucket_to_pad, bool& bucket_picked, bool doprint, Perceptron* p)
+int AntoninaAPI::GoTestImproved(char lab[][8], int& min_rover_to_bucket, int& min_bucket_to_pad, bool& bucket_picked, bool doprint, Perceptron* p, int& shaping_score)
 {
-	if (doprint) {
-		logfile << "#\tNew test... ";
-	}
-
+	if (doprint) { logfile << "#\tNew test... "; }
 	bucket_picked = false;
-	bool rover_has_bucket = false; 
-
+	bool rover_has_bucket = false;
+	shaping_score = 0;
 	for (int s = 1; s < STEPS_LIMIT + 1; s++)
 	{
-		if (doprint)
-		{
+		if (doprint) {
 			sleep_for(std::chrono::milliseconds(TIME_TO_SLEEP));
-			printf("Step: %d / %d                       \n", s, STEPS_LIMIT);
+			printf("Step: %d / %d\n", s, STEPS_LIMIT);
 			PrintLab(lab);
-			for (int l = 0; l < 10; l++)
-			{
-				printf("\r\033[A");
-			}
+			for (int l = 0; l < 10; l++) printf("\r\033[A");
 		}
-
 		char copy[8][8];
 		int ax, ay, Ox, Oy, gx, gy;
 		CopyLab(lab, copy, &ax, &ay, &Ox, &Oy, &gx, &gy);
 
-
-		int current_rover_to_bucket = abs(ax - gx) + abs(ay - gy);
+		int current_rover_to_bucket = abs(ax - Ox) + abs(ay - Oy);
 		min_rover_to_bucket = std::min(min_rover_to_bucket, current_rover_to_bucket);
-
 		int current_bucket_to_pad = abs(Ox - gx) + abs(Oy - gy);
 		min_bucket_to_pad = std::min(min_bucket_to_pad, current_bucket_to_pad);
 
-
-		if (current_rover_to_bucket == 0 ||
-			(ax == gx && abs(ay - gy) == 1) ||
-			(ay == gy && abs(ax - gx) == 1)) {
-			bucket_picked = true;
-			rover_has_bucket = true;
-		}
+		int old_d_box_goal = abs(Ox - gx) + abs(Oy - gy);
+		int old_d_agent_box = abs(ax - Ox) + abs(ay - Oy);
 
 		char c = Move(copy, p);
-		if (c == 'x') {
-			if (doprint) logfile << " terminated at step " << s << "!\n";
-			return -1;
-		}
-		if (c == 'q') {
-			if (doprint) logfile << " terminated!\n";
-			return -2;
-		}
+		if (c == 'x') { if (doprint) logfile << " terminated!\n"; return -1; }
+		if (c == 'q') { if (doprint) logfile << " terminated!\n"; return -2; }
 
-	
 		int tox = ax, toy = ay, totox = ax, totoy = ay, pullx = ax, pully = ay;
 		bool toB = true, totoB = true, pullB = true;
-		switch (c)
-		{
+		switch (c) {
 		case 'u': tox--; totox -= 2; pullx++; toB = (tox >= 0); totoB = (totox >= 0); pullB = (pullx < 8); break;
 		case 'd': tox++; totox += 2; pullx--; toB = (tox < 8); totoB = (totox < 8); pullB = (pullx >= 0); break;
 		case 'l': toy--; totoy -= 2; pully++; toB = (toy >= 0); totoB = (totoy >= 0); pullB = (pully < 8); break;
 		case 'r': toy++; totoy += 2; pully--; toB = (toy < 8); totoB = (totoy < 8); pullB = (pully >= 0); break;
 		default: break;
 		}
-
 		if (!toB) continue;
 
-		if (lab[tox][toy] == '.' || lab[tox][toy] == 'O')
-		{
-			lab[tox][toy] = (lab[tox][toy] == '.') ? 'a' : '@';
+		int prev_Ox = Ox, prev_Oy = Oy;
+
+		if (lab[tox][toy] == '.' || lab[tox][toy] == 'O') {
+			bool was_on_box = (lab[tox][toy] == 'O');
+			lab[tox][toy] = was_on_box ? '@' : 'a';
 			if (!pullB || lab[pullx][pully] == '.' || lab[pullx][pully] == 'O') {
 				lab[ax][ay] = (lab[ax][ay] == 'a') ? '.' : 'O';
-				continue;
 			}
-			if (lab[pullx][pully] == '%' && lab[ax][ay] == '@') {
+			else if (lab[pullx][pully] == '%' && lab[ax][ay] == '@') {
 				if (doprint) logfile << " done in " << s << " steps!\n";
+				{
+					int nax2, nay2, nOx2, nOy2, ngx2, ngy2;
+					char tmp[8][8];
+					CopyLab(lab, tmp, &nax2, &nay2, &nOx2, &nOy2, &ngx2, &ngy2);
+					shaping_score += (old_d_box_goal - abs(nOx2 - ngx2)) * 10;
+					shaping_score += (old_d_agent_box - abs(nax2 - nOx2)) * 2;
+				}
 				return s;
 			}
-			if (lab[pullx][pully] == '#' && lab[ax][ay] == '@') {
+			else if (lab[pullx][pully] == '#' && lab[ax][ay] == '@') {
 				lab[ax][ay] = 'O';
-				continue;
 			}
-			lab[ax][ay] = lab[pullx][pully];
-			lab[pullx][pully] = '.';
-			continue;
+			else {
+				lab[ax][ay] = lab[pullx][pully];
+				lab[pullx][pully] = '.';
+			}
 		}
-
-		if (lab[tox][toy] == '%')
-		{
+		else if (lab[tox][toy] == '%') {
 			if (!totoB || lab[totox][totoy] == '#') continue;
 			if (lab[totox][totoy] == '.') {
 				lab[tox][toy] = 'a';
 				lab[ax][ay] = (lab[ax][ay] == 'a') ? '.' : 'O';
 				lab[totox][totoy] = '%';
-				continue;
 			}
-			if (lab[totox][totoy] == 'O') {
+			else if (lab[totox][totoy] == 'O') {
 				if (doprint) logfile << " done in " << s << " steps!\n";
+				{
+					int nax2, nay2, nOx2, nOy2, ngx2, ngy2;
+					char tmp[8][8];
+					CopyLab(lab, tmp, &nax2, &nay2, &nOx2, &nOy2, &ngx2, &ngy2);
+					shaping_score += (old_d_box_goal - abs(nOx2 - ngx2)) * 10;
+					shaping_score += (old_d_agent_box - abs(nax2 - nOx2)) * 2;
+				}
 				return s;
 			}
+			continue;
 		}
-
-		if (lab[tox][toy] == '#')
-		{
+		else if (lab[tox][toy] == '#') {
 			if (!totoB || lab[totox][totoy] != '.') continue;
 			lab[tox][toy] = 'a';
 			lab[ax][ay] = (lab[ax][ay] == 'a') ? '.' : 'O';
 			lab[totox][totoy] = '#';
 			continue;
 		}
-	}
 
+		{
+			int nax, nay, nOx, nOy, ngx2, ngy2;
+			char tmp[8][8];
+			CopyLab(lab, tmp, &nax, &nay, &nOx, &nOy, &ngx2, &ngy2);
+
+			if ((nOx != prev_Ox || nOy != prev_Oy) && !bucket_picked) {
+				bucket_picked = true;
+				rover_has_bucket = true;
+			}
+
+			shaping_score += (old_d_box_goal - abs(nOx - ngx2)) * 10;
+			shaping_score += (old_d_agent_box - abs(nax - nOx)) * 2;
+		}
+	}
 	if (doprint) logfile << " fail!\n";
 	return -1;
 }
 
-
 int AntoninaAPI::solveFitness(Perceptron* p, int tests_to_run) {
 	int actual_tests = std::min(tests_to_run, ALL_TESTS);
-	if (actual_tests <= 0) actual_tests = ALL_TESTS;
+	if (actual_tests <= 0) actual_tests = active_tests;
 
-	const int SUCCESS_BASE = 1000;              // Базовая награда за доставку
-	const int SUCCESS_STEP_BONUS = 15;          // Бонус за скорость (увеличен!)
-
-	const int DISTANCE_REDUCTION_BONUS = 25;    // За каждую клетку приближения
-	const int PICKED_BUCKET_BONUS = 400;        // Бонус за взятие ведра
-	const int BUCKET_TO_PAD_BONUS = 20;         // За приближение ведра к площадке
-
-	const int NO_PROGRESS_PENALTY = 5;          // Небольшой штраф за отсутствие прогресса
-	const int TERMINATE_PENALTY = 100;          // Штраф за критическую ошибку
-
-	const int BASE_SCORE = 50;                  // Минимальные очки за попытку
+	const int SUCCESS_BASE = 1000;
+	const int SUCCESS_STEP_BONUS = 15;
+	const int DISTANCE_REDUCTION_BONUS = 25;
+	const int PICKED_BUCKET_BONUS = 400;
+	const int BUCKET_TO_PAD_BONUS = 20;
+	const int NO_PROGRESS_PENALTY = 5;
+	const int TERMINATE_PENALTY = 100;
+	const int BASE_SCORE = 50;
 
 	long long total_score = 0;
 
 	for (int i = 0; i < actual_tests; i++) {
-		int ax = axarr[i];
-		int ay = ayarr[i];
-		int Ox = Oxarr[i];
-		int Oy = Oyarr[i];
-		int gx = gxarr[i];
-		int gy = gyarr[i];
-		int rn = rnarr[i];
-
 		char lab[8][8];
-		MakeLab(lab, ax, ay, ax, ay, gx, gy, 0);
+		memcpy(lab, prebuilt_labs[i], sizeof(lab));
 
-		int initial_rover_to_bucket = abs(ax - gx) + abs(ay - gy);
-		int initial_bucket_to_pad = abs(Ox - gx) + abs(Oy - gy);
-
-
+		int initial_rover_to_bucket = prebuilt_initial_r2b[i];
+		int initial_bucket_to_pad = prebuilt_initial_b2p[i];
 		int min_rover_to_bucket = initial_rover_to_bucket;
 		int min_bucket_to_pad = initial_bucket_to_pad;
 		bool bucket_was_picked = false;
+		int shaping_score = 0;
 
 		int result = GoTestImproved(lab, min_rover_to_bucket, min_bucket_to_pad,
-			bucket_was_picked, false, p);
+			bucket_was_picked, false, p, shaping_score);
 
-		int test_score = BASE_SCORE;  
+		int test_score = BASE_SCORE;
 
 		if (result > 0) {
-
 			test_score += SUCCESS_BASE;
-
 			int steps_saved = std::max(0, STEPS_LIMIT - result);
 			test_score += steps_saved * SUCCESS_STEP_BONUS;
-
-			if (result <= STEPS_LIMIT / 2) {
-				test_score += 200;  
-			}
+			if (result <= STEPS_LIMIT / 2) test_score += 200;
 		}
 		else {
 			if (result == -2) {
@@ -619,31 +606,30 @@ int AntoninaAPI::solveFitness(Perceptron* p, int tests_to_run) {
 			}
 			else {
 				int rover_progress = initial_rover_to_bucket - min_rover_to_bucket;
-				if (rover_progress > 0) {
+				if (rover_progress > 0)
 					test_score += rover_progress * DISTANCE_REDUCTION_BONUS;
-				}
 				if (bucket_was_picked) {
 					test_score += PICKED_BUCKET_BONUS;
 					int bucket_progress = initial_bucket_to_pad - min_bucket_to_pad;
-					if (bucket_progress > 0) {
+					if (bucket_progress > 0)
 						test_score += bucket_progress * BUCKET_TO_PAD_BONUS;
-					}
-					if (min_bucket_to_pad <= 2) {
-						test_score += 150;  
-					}
+					if (min_bucket_to_pad <= 2)
+						test_score += 150;
 				}
-				if (rover_progress <= 0 && !bucket_was_picked) {
+				if (rover_progress <= 0 && !bucket_was_picked)
 					test_score = std::max(BASE_SCORE, test_score - NO_PROGRESS_PENALTY);
-				}
 			}
 		}
 
+		test_score += shaping_score;
 		total_score += test_score;
+
+		if (i == 59) {
+			double projected_avg = (double)total_score / 60.0;
+			if (projected_avg < 200.0)
+				return (int)projected_avg - 1;
+		}
 	}
 
-	int avg_score = 0;
-	if (actual_tests > 0) {
-		avg_score = static_cast<int>(total_score / actual_tests);
-	}
-	return avg_score;
+	return actual_tests > 0 ? (int)(total_score / actual_tests) : 0;
 }

@@ -10,8 +10,7 @@ thread_local double NOT_MUTAHION_ = 0.04;
 
 template<typename T>
 T Perceptron::random_in_range(T a, T b) {
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
+    static thread_local std::mt19937 gen(std::random_device{}());
 
     if constexpr (std::is_integral_v<T>) {
         std::uniform_int_distribution<T> dist(a, b);
@@ -29,21 +28,6 @@ double Perceptron::activation(double x) {
 
 double Perceptron::dactivation(double y) {
     return y * (1.0 - y);
-}
-
-double Perceptron::solveZ(int L, int j) {
-    Layer& prev_layer = layers[L - 1];
-    Layer& curr_layer = layers[L];
-    double z = 0.0;
-    if (prev_layer.weights) {
-        for (int k = 0; k < prev_layer.size; k++) {
-            z += prev_layer.neurons[k] * prev_layer.weights[j][k];
-        }
-    }
-    if (prev_layer.biases) {
-        z += prev_layer.biases[j];
-    }
-    return z;
 }
 
 
@@ -124,10 +108,9 @@ Perceptron::Perceptron(double learningRate_, int length_, int* sizes) {
         if (nextSize > 0 && layers[l].biases && layers[l].weights) {
             for (int j = 0; j < nextSize; j++) {
                 layers[l].biases[j] = distribution(generator);
-
                 for (int k = 0; k < sizes[l]; k++) {
                     double range = sqrt(6.0 / (sizes[l] + nextSize));
-                    layers[l].weights[j][k] = distribution(generator) * range;
+                    layers[l].weights[j * sizes[l] + k] = distribution(generator) * range;
                 }
             }
         }
@@ -174,7 +157,7 @@ void Perceptron::backpropagation(double* targets) {
         for (int k = 0; k < curr.size; k++) {
             double error = 0;
             for (int j = 0; j < next.size; j++) {
-                error += layers[L].weights[j][k] * deltas[L + 1][j];
+                error += layers[L].weights[j * layers[L].size + k] * deltas[L + 1][j];
             }
             deltas[L][k] = error * dactivation(curr.neurons[k]);
         }
@@ -184,7 +167,7 @@ void Perceptron::backpropagation(double* targets) {
         Layer& next = layers[L + 1];
         for (int j = 0; j < next.size; j++) {
             for (int k = 0; k < curr.size; k++) {
-                curr.weights[j][k] += learningRate * deltas[L + 1][j] * curr.neurons[k];
+                curr.weights[j * curr.size + k] += learningRate * deltas[L + 1][j] * curr.neurons[k];
             }
             curr.biases[j] += learningRate * deltas[L + 1][j];
         }
@@ -219,7 +202,7 @@ Perceptron::Perceptron(Perceptron* p1, Perceptron* p2) {
             layers[i].biases[j] = alpha * p1->layers[i].biases[j] + (1.0 - alpha) * p2->layers[i].biases[j];
             for (int k = 0; k < size; k++) {
                 double alpha_w = uni01(gen);
-                layers[i].weights[j][k] = alpha_w * p1->layers[i].weights[j][k] + (1.0 - alpha_w) * p2->layers[i].weights[j][k];
+                layers[i].weights[j * layers[i].size + k] = alpha_w * p1->layers[i].weights[j * layers[i].size + k] + (1.0 - alpha_w) * p2->layers[i].weights[j * layers[i].size + k];
             }
         }
     }
@@ -248,8 +231,8 @@ void Perceptron::mutate(double sigma, double prob) {
 
             for (int k = 0; k < size; k++) {
                 if (uni01(gen) < NOT_MUTAHION) {
-                    layers[l].weights[j][k] += gauss(gen);
-                    layers[l].weights[j][k] = std::clamp(layers[l].weights[j][k], WEIGHT_MIN, WEIGHT_MAX);
+                    layers[l].weights[j * layers[l].size + k] += gauss(gen);
+                    layers[l].weights[j * layers[l].size + k] = std::clamp(layers[l].weights[j * layers[l].size + k], WEIGHT_MIN, WEIGHT_MAX);
                 }
             }
         }
@@ -294,12 +277,18 @@ int Perceptron::getOut() {
 }
 
 void Perceptron::feedForward(double* inputs) {
-    copyArray(layers[0].size, inputs, layers[0].neurons);
+    for (int i = 0; i < layers[0].size; i++)
+        layers[0].neurons[i] = inputs[i];
 
     for (int L = 1; L < length; L++) {
-        for (int j = 0; j < layers[L].size; j++) {
-            double z = solveZ(L, j);
-            layers[L].neurons[j] = activation(z);
+        Layer& prev = layers[L - 1];
+        Layer& curr = layers[L];
+        for (int j = 0; j < curr.size; j++) {
+            double z = prev.biases[j];
+            for (int k = 0; k < prev.size; k++) {
+                z += prev.neurons[k] * prev.weights[j * prev.size + k];
+            }
+            curr.neurons[j] = 1.0 / (1.0 + exp(-z));
         }
     }
 }

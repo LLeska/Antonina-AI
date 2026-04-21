@@ -8,8 +8,7 @@
 
 template<typename T>
 T NeuroEvolution::random_in_range(T a, T b) {
-	static std::random_device rd;
-	static std::mt19937 gen(rd());
+	static thread_local std::mt19937 gen(std::random_device{}());
 
 	if constexpr (std::is_integral_v<T>) {
 		std::uniform_int_distribution<T> dist(a, b);
@@ -177,12 +176,12 @@ void NeuroEvolution::evolution() {
 
 	int elite_count = std::max(20, population / 8);
 	int immigrants = std::max(50, population / 15);
-
+	/*
 	std::cout << "elite_count=" << elite_count
 		<< " immigrants=" << immigrants
 		<< " elite+immigrants=" << elite_count + immigrants
 		<< " population=" << population << std::endl;
-
+		*/
 
 	int use_parents = std::min(parents_size, population);
 	std::unique_ptr<Perceptron[]> best(new Perceptron[use_parents]);
@@ -252,7 +251,7 @@ void NeuroEvolution::evolution() {
 		nextGen[idx++] = std::move(child);
 	}
 
-	std::cout << "last idx written to nextGen=" << idx - 1 << std::endl;
+	//std::cout << "last idx written to nextGen=" << idx - 1 << std::endl;
 
 	for (int i = population - immigrants; i < population; ++i) {
 		Perceptron random_one(learningRate, length, sizes);

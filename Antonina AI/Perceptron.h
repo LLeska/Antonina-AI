@@ -19,7 +19,6 @@ private:
 
     double dactivation(double y);
 
-    double solveZ(int L, int j);
 
     template <typename T>
     void copyArray(int n, T* array_source, T* array_destination);
