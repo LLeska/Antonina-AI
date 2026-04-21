@@ -1,63 +1,48 @@
 #pragma once
 #include "Perceptron.h"
+#include <fstream>
+#include <string>
 
-class NeuroEvolution
-{
+class NeuroEvolution {
 private:
-	int population;
-	double learningRate;
-	int length;
-	int parents_size;
-	Perceptron* neuros;
-	int* sizes;
-	int* fitness;
-	int best_fitness_ever;
-	int generations_without_improvement;
-	double current_epsilon;
-	double current_mutation_prob;
-	
-	template<typename T>
-	T random_in_range(T a, T b);
+    double learningRate;
+    int    population;
+    int    length;
+    int    parents_size;
+    int* sizes;
+    Perceptron* neuros;
+    int* fitness;
 
-	void clearFitness();
+    int    best_fitness_ever;
+    int    generations_without_improvement;
+    double current_epsilon;
+    double current_mutation_prob;
 
-	int partition(int low, int high);
+    template<typename T>
+    T random_in_range(T a, T b);
 
-	void quickSort(int low, int high);
-	
+    int  partition(int low, int high);
+    void quickSort(int low, int high);
+    bool allEqual();
+    void deinit();
 
 public:
-	NeuroEvolution();
+    NeuroEvolution();
+    NeuroEvolution(double learningRate_, int length_, int* sizes_, int parents_size_, int population_);
+    ~NeuroEvolution();
 
-	NeuroEvolution(double learningRate_, int length_, int* sizes_, int parents_size_, int population_);
+    void evolution();
 
-	~NeuroEvolution();
+    void setFitness(int* fitness_);
+    void clearFitness();
+    int* getFitness();
 
-	void feedForward(double* state);
+    int        getPopulation();
+    Perceptron* getNeuros(int i);
+    Perceptron* demonstrate();
 
-	int getPopulation();
-
-	Perceptron* getNeuros(int i);
-
-	int* getFitness();
-
-	void setFitness(int* fitness_);
-
-	void evolution();
-
-	void readFromFile(std::string file);
-
-	void writeInFile(std::string file);
-
-	void readFromFile(std::ifstream* fin);
-
-	void writeInFile(std::ofstream* fout);
-
-	bool allEqual();
-
-	Perceptron* demonstrate();
-
-	void deinit();
-
+    void readFromFile(std::string file);
+    void writeInFile(std::string file);
+    void readFromFile(std::ifstream* fin);
+    void writeInFile(std::ofstream* fout);
 };
-
