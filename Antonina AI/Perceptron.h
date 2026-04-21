@@ -2,9 +2,7 @@
 #include "Layer.h"
 #include <string>
 
-
-class Perceptron
-{
+class Perceptron {
 private:
     double learningRate;
     Layer* layers;
@@ -15,54 +13,24 @@ private:
     template<typename T>
     T random_in_range(T a, T b);
 
-    double activation(double x);
-
-    double dactivation(double y);
-
-
-    template <typename T>
-    void copyArray(int n, T* array_source, T* array_destination);
-public:    
-    bool isInitialized();
-
-    void mutate(double sigma, double prob);
-
-    void adaptMutationGlobals(bool improved, int stagnation, double min_eps = 0.01, double max_eps = 1.0,double min_prob = 0.001, double max_prob = 0.5);
-
-    double getEpsilon();
-
-    double getNotMutation();
-
-    Perceptron(double learningRate_, int layers_length_, int* sizes);
-
+public:
     Perceptron();
-
+    Perceptron(double learningRate_, int length_, int* sizes);
     Perceptron(const Perceptron& p);
-
-    Perceptron& operator=(const Perceptron& other);
-
+    Perceptron(Perceptron&& p);
+    Perceptron(Perceptron* p1, Perceptron* p2);
+    Perceptron& operator=(const Perceptron& p);
+    Perceptron& operator=(Perceptron&& p);
     ~Perceptron();
 
-    Perceptron(Perceptron&& p);
-
-    Perceptron& operator=(Perceptron&& other);
-
-    Perceptron(Perceptron* p1, Perceptron* p2);
-
     void feedForward(double* inputs);
-
     int getOut();
-
-    void backpropagation(double* targets);
-
-    void readFromFile(std::string file);
-
-    void writeInFile(std::string file);
+    void mutate(double sigma, double prob);
+    bool isInitialized();
+    void deInit();
 
     void readFromFile(std::ifstream* fin);
-
     void writeInFile(std::ofstream* fout);
-
-    void deInit();
+    void readFromFile(std::string file);
+    void writeInFile(std::string file);
 };
-

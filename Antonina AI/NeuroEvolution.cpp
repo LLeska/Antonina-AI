@@ -62,7 +62,7 @@ NeuroEvolution::NeuroEvolution(double learningRate_, int length_, int* sizes_, i
 	parents_size = parents_size_;
 	best_fitness_ever = INT_MIN;
 	generations_without_improvement = 0;
-	current_epsilon = 0.5;  
+	current_epsilon = 0.5;
 	current_mutation_prob = 0.2;
 	fitness = nullptr;
 	sizes = new int[length];
@@ -80,12 +80,6 @@ NeuroEvolution::NeuroEvolution(double learningRate_, int length_, int* sizes_, i
 
 NeuroEvolution::~NeuroEvolution() {
 	deinit();
-}
-
-void NeuroEvolution::feedForward(double* state) {
-	for (int i = 0; i < population; i++) {
-		neuros[i].feedForward(state);
-	}
 }
 
 int NeuroEvolution::getPopulation() { return population; }
@@ -110,8 +104,6 @@ void NeuroEvolution::setFitness(int* fitness_) {
 		fitness[i] = fitness_[i];
 	}
 }
-
-
 
 void NeuroEvolution::evolution() {
 	if (population <= 0 || neuros == nullptr) return;
@@ -156,7 +148,7 @@ void NeuroEvolution::evolution() {
 		std::cout << "MAJOR RESET after " << generations_without_improvement
 			<< " gens! Best was: " << best_fitness_ever << std::endl;
 
-		int survivors = population / 20;  
+		int survivors = population / 20;
 		std::unique_ptr<Perceptron[]> saved(new Perceptron[survivors]);
 		for (int i = 0; i < survivors; ++i) saved[i] = neuros[i];
 
@@ -168,8 +160,8 @@ void NeuroEvolution::evolution() {
 		for (int i = 0; i < survivors; ++i) neuros[i] = std::move(saved[i]);
 
 		generations_without_improvement = 0;
-		current_epsilon = 2.0; 
-		current_mutation_prob = 0.6; 
+		current_epsilon = 2.0;
+		current_mutation_prob = 0.6;
 		clearFitness();
 		return;
 	}
@@ -204,10 +196,9 @@ void NeuroEvolution::evolution() {
 
 	double diversity = (double)avg_fitness / (fitness[0] + 1.0);
 
-	
 	int tournament_size;
 	if (generations_without_improvement > 100) {
-		tournament_size = 2;  
+		tournament_size = 2;
 	}
 	else if (generations_without_improvement > 50) {
 		tournament_size = diversity > 0.75 ? 3 : 2;
@@ -251,19 +242,15 @@ void NeuroEvolution::evolution() {
 		nextGen[idx++] = std::move(child);
 	}
 
-	//std::cout << "last idx written to nextGen=" << idx - 1 << std::endl;
-
 	for (int i = population - immigrants; i < population; ++i) {
 		Perceptron random_one(learningRate, length, sizes);
 		nextGen[i] = random_one;
 	}
 
-
 	delete[] neuros;
 	neuros = nextGen.release();
 	clearFitness();
 }
-
 
 void NeuroEvolution::readFromFile(std::string file) {
 	std::ifstream fin(file, std::ios::in);
@@ -311,7 +298,6 @@ void NeuroEvolution::readFromFile(std::ifstream* fin) {
 	}
 	sizes = new_sizes;
 	neuros = new_neuros;
-	int old_population = population;
 	population = allocated;
 	int actually_read = 0;
 	for (int i = 0; i < population_; i++) {
@@ -334,23 +320,20 @@ void NeuroEvolution::readFromFile(std::ifstream* fin) {
 
 	if (generations_without_improvement > 150) {
 		std::cout << " WARNING: Long stagnation detected! Resetting mutation params..." << std::endl;
-		generations_without_improvement = 0; 
-		current_epsilon = 1.5;  
+		generations_without_improvement = 0;
+		current_epsilon = 1.5;
 		current_mutation_prob = 0.5;
 		std::cout << "Reset to: eps=" << current_epsilon
 			<< " prob=" << current_mutation_prob << std::endl;
 	}
-
-
 }
 
-
 void NeuroEvolution::writeInFile(std::ofstream* fout) {
-	*fout << learningRate << ' ' << length \
-		<< ' ' << population<<' ' << \
-		parents_size << ' ' << best_fitness_ever \
-		<< ' ' << generations_without_improvement\
-		<< ' ' << current_epsilon << ' ' \
+	*fout << learningRate << ' ' << length
+		<< ' ' << population << ' '
+		<< parents_size << ' ' << best_fitness_ever
+		<< ' ' << generations_without_improvement
+		<< ' ' << current_epsilon << ' '
 		<< current_mutation_prob << '\n';
 	*fout << sizes[0];
 	for (int i = 1; i < length; i++) {

@@ -5,9 +5,9 @@ class AntoninaAPI
 {
 private:
 	std::ofstream logfile;
-	const int TIME_TO_SLEEP = 0;					//  <======== Animation delay (ms)
-	const bool PRINT_STEPS = true;					//  <======== Enable / disable animation
-	const int STEPS_LIMIT = 40;					//  <======== Steps limit for each run
+	const int TIME_TO_SLEEP = 0;				
+	const bool PRINT_STEPS = true;				
+	const int STEPS_LIMIT = 40;					
 	const int N_TESTS = 20;
 	const int ALL_TESTS = 360;
 	int axarr[4032];

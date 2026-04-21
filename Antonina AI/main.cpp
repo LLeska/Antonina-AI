@@ -96,16 +96,17 @@ int main() {
 
     std::vector<AntoninaAPI> envs(num_threads);
 
-    const int CURRICULUM_STEP = 50;
-    const int CURRICULUM_INC = 30;
+    const int CURRICULUM_GENS = 50;
+    const int CURRICULUM_STEP = 30;
     const int MAX_TESTS = 360;
-    for (auto& env : envs) env.active_tests = 30;
+
+    for (auto& env : envs) env.active_tests = CURRICULUM_STEP;
 
     for (int gen = start; gen < 1000001 + start; gen++) {
 
-        if (gen > start && (gen - start) % CURRICULUM_STEP == 0) {
+        if (gen > start && (gen - start) % CURRICULUM_GENS == 0) {
             for (auto& env : envs)
-                env.active_tests = std::min(env.active_tests + CURRICULUM_INC, MAX_TESTS);
+                env.active_tests = std::min(env.active_tests + CURRICULUM_STEP, MAX_TESTS);
             std::cout << "active_tests=" << envs[0].active_tests << '\n';
         }
 
