@@ -362,3 +362,9 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 /build-test
+/tools
+/Antonina AI/models/
+*.err
+*.out
+/Antonina AI/test_equiv.cpp
+/Antonina AI/diagnose_neat.cpp
