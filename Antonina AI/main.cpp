@@ -1,5 +1,5 @@
-#include "AntoninaAPI.h"
 #include "NeatEvolution.h"
+#include "AntoninaAPI.h"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -82,33 +82,75 @@ private:
   bool stop_;
 };
 
-int main() {
+int main(int argc, char **argv) {
   std::ios_base::sync_with_stdio(false);
   std::cout.tie(nullptr);
   std::cout.setf(std::ios::unitbuf);
   std::cerr.setf(std::ios::unitbuf);
 
-  int population = 20000;
+  int population = 5000;
+  int requested_threads = 0;
+  bool enable_gui = true;
   const int input_count = AntoninaAPI::INPUT_FEATURES;
+  std::string load_file;
+  for (int i = 1; i < argc; ++i) {
+    std::string arg = argv[i];
+    if (arg == "--load" && i + 1 < argc) {
+      load_file = argv[++i];
+    } else if (arg == "--population" && i + 1 < argc) {
+      population = std::max(1, std::atoi(argv[++i]));
+    } else if (arg == "--threads" && i + 1 < argc) {
+      requested_threads = std::max(1, std::atoi(argv[++i]));
+    } else if (arg == "--no-gui") {
+      enable_gui = false;
+    } else if (load_file.empty()) {
+      load_file = arg;
+    }
+  }
 
   std::cout << "Antonina AI NEAT starting: population=" << population
-            << " inputs=" << input_count << " outputs=4" << '\n';
+            << " inputs=" << input_count << " outputs=4";
+  if (!load_file.empty())
+    std::cout << " checkpoint=" << load_file;
+  std::cout << '\n';
 
-  NeatEvolution ne(input_count, 4, population);
-  
+  NeatEvolution ne(input_count, 4, load_file.empty() ? population : 0);
+  int loaded_active_tests = 1;
+  if (!load_file.empty()) {
+    if (!ne.readInFile(load_file, &loaded_active_tests)) {
+      std::cerr << "failed to load NEAT checkpoint: " << load_file << '\n';
+      return 1;
+    }
+    std::cout << "Loaded NEAT checkpoint from " << load_file
+              << " | generation=" << ne.getGeneration()
+              << " population=" << ne.getPopulation()
+              << " active_tests=" << loaded_active_tests << '\n';
+  }
 
 #ifndef NO_GUI
-  LiveStats live;
-  AntoninaAPI anim_api;
-  std::thread gui_thread(viewerThread, std::ref(live), std::ref(anim_api));
+  std::unique_ptr<LiveStats> live;
+  std::unique_ptr<AntoninaAPI> anim_api;
+  std::thread gui_thread;
+  if (enable_gui) {
+    live = std::make_unique<LiveStats>();
+    anim_api = std::make_unique<AntoninaAPI>();
+    gui_thread = std::thread(viewerThread, std::ref(*live),
+                             std::ref(*anim_api));
+  }
 #endif
 
-  int start = 0;
+  int start = ne.getGeneration();
 
   population = ne.getPopulation();
 
-  const int num_threads = std::max(1u, std::thread::hardware_concurrency());
-  std::cout << "Training threads=" << num_threads << '\n';
+  const unsigned hw_threads = std::thread::hardware_concurrency();
+  const int num_threads =
+      requested_threads > 0 ? requested_threads : std::max(1u, hw_threads);
+  std::cout << "Training threads=" << num_threads;
+#ifndef NO_GUI
+  std::cout << " gui=" << (enable_gui ? "on" : "off");
+#endif
+  std::cout << '\n';
   ThreadPool pool(num_threads);
 
   std::vector<AntoninaAPI> envs(num_threads);
@@ -124,7 +166,7 @@ int main() {
 #endif
 
   for (auto &env : envs)
-    env.active_tests = 1;
+    env.active_tests = std::clamp(loaded_active_tests, 1, MAX_TESTS);
   int last_promotion_gen = start - MIN_GEN_BETWEEN_PROMOTIONS;
 
   auto nextTestCount = [](int current) {
@@ -176,6 +218,7 @@ int main() {
     int best_idx = (int)(std::max_element(fitness.begin(), fitness.end()) -
                          fitness.begin());
     NeatGenome *best = ne.getGenome(best_idx);
+    Brain *best_brain = static_cast<Brain *>(best);
 
     int cur_tests = envs[0].active_tests;
     int best_wins = 0;
@@ -183,8 +226,8 @@ int main() {
     int promotion_target = cur_tests;
     if (gen - last_promotion_gen >= MIN_GEN_BETWEEN_PROMOTIONS) {
       std::vector<int> failures;
-      int wins =
-          envs[0].collectFailures(best, cur_tests, failures, FAILURE_LOG_LIMIT);
+      int wins = envs[0].collectFailures(best_brain, cur_tests, failures,
+                                         FAILURE_LOG_LIMIT);
       best_wins = wins;
       if (wins == cur_tests) {
         std::cout << "[mastery] gen=" << gen << " wins=" << wins << '/'
@@ -194,15 +237,19 @@ int main() {
           std::string final_file = "models/best_final.csv";
           std::string gen_file =
               "models/best_final_gen_" + std::to_string(gen) + ".csv";
+          std::string checkpoint_file =
+              "models/population_final_gen_" + std::to_string(gen) + ".csv";
           bool saved_final = ne.writeBestInFile(final_file);
           bool saved_gen = ne.writeBestInFile(gen_file);
+          bool saved_checkpoint = ne.writeInFile(checkpoint_file, cur_tests);
           std::cout << "[done] gen=" << gen << " wins=" << wins << '/'
                     << MAX_TESTS << " fitness=" << max_fitness << '\n';
-          if (saved_final && saved_gen) {
+          if (saved_final && saved_gen && saved_checkpoint) {
             std::cout << "[done] saved best model to " << final_file << " and "
-                      << gen_file << '\n';
+                      << gen_file << "; checkpoint to " << checkpoint_file
+                      << '\n';
           } else {
-            std::cout << "[done] failed to save final best model" << '\n';
+            std::cout << "[done] failed to save final model files" << '\n';
           }
           training_complete = true;
         } else {
@@ -249,23 +296,25 @@ int main() {
 
 #ifndef NO_GUI
 
-    GenSample gs{gen,
-                 max_fitness,
-                 min_fitness,
-                 avg_fitness,
-                 envs[0].active_tests,
-                 best_wins,
-                 ne.getSpeciesCount(),
-                 ne.getAvgNodeCount(),
-                 ne.getAvgConnectionCount(),
-                 ne.getCompatibilityThreshold(),
-                 (int)fitness_ms,
-                 ne.getMutationSigma(),
-                 ne.getMutationProb(),
-                 ne.getStagnation()};
-    live.pushSample(gs);
+    if (live) {
+      GenSample gs{gen,
+                   max_fitness,
+                   min_fitness,
+                   avg_fitness,
+                   envs[0].active_tests,
+                   best_wins,
+                   ne.getSpeciesCount(),
+                   ne.getAvgNodeCount(),
+                   ne.getAvgConnectionCount(),
+                   ne.getCompatibilityThreshold(),
+                   (int)fitness_ms,
+                   ne.getMutationSigma(),
+                   ne.getMutationProb(),
+                   ne.getStagnation()};
+      live->pushSample(gs);
 
-    live.publishBest(*ne.getGenome(best_idx));
+      live->publishBest(*ne.getGenome(best_idx));
+    }
 #endif
 
     if (LOG_DEBUG_STAGES && gen < 10)
@@ -299,20 +348,28 @@ int main() {
 
 #ifndef NO_GUI
 
-    if (live.consumeSaveRequest()) {
-      ne.writeInFile("models/gen_" + std::to_string(gen) + "_manual.csv");
-      std::cout << "saved manually at gen " << gen << '\n';
+    if (live && live->consumeSaveRequest()) {
+      std::filesystem::create_directories("models");
+      std::string checkpoint_file = "models/population_manual_gen_" +
+                                    std::to_string(ne.getGeneration()) +
+                                    ".csv";
+      std::cout << "saving " << checkpoint_file << "..." << '\n';
+      if (ne.writeInFile(checkpoint_file, envs[0].active_tests))
+        std::cout << "saved " << checkpoint_file << '\n';
+      else
+        std::cout << "failed to save " << checkpoint_file << '\n';
     }
 #endif
 #ifndef NO_GUI
 
-    if (!live.isRunning())
+    if (live && !live->isRunning())
       break;
 #endif
   }
 
 #ifndef NO_GUI
-  live.requestStop();
+  if (live)
+    live->requestStop();
   if (gui_thread.joinable())
     gui_thread.join();
 #endif

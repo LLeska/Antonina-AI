@@ -1,6 +1,7 @@
 #pragma once
 #include "Brain.h"
 #include "Layer.h"
+#include <fstream>
 #include <memory>
 #include <string>
 

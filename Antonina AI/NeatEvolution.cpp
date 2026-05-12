@@ -15,12 +15,37 @@ constexpr double SURVIVAL_RATE = 0.2;
 constexpr int MAX_STALE = 30;
 constexpr double MUTATE_ONLY_PROB = 0.25;
 constexpr double INTERSPECIES_MATE_PROB = 0.001;
-constexpr double ADD_CONNECTION_PROB = 0.05;
-constexpr double ADD_NODE_PROB = 0.03;
+constexpr double ADD_CONNECTION_PROB = 0.06;
+constexpr double ADD_NODE_PROB = 0.025;
+constexpr double INPUT_PROBE_PROB = 0.12;
+constexpr double SPARSE_INPUT_PROBE_PROB = 0.45;
+constexpr double SPARSE_CONNECTION_PROB = 0.18;
+constexpr int TARGET_SPECIES_MIN = 10;
+constexpr int TARGET_SPECIES_MAX = 32;
+constexpr double COMPATIBILITY_MIN = 0.5;
+constexpr double COMPATIBILITY_MAX = 6.0;
 }
 
 NeatInnovation::NeatInnovation(int next_node_id)
     : next_node_id_(next_node_id), next_innovation_(0) {}
+
+void NeatInnovation::reset(int next_node_id) {
+  next_node_id_ = next_node_id;
+  next_innovation_ = 0;
+  connections_.clear();
+  split_nodes_.clear();
+}
+
+void NeatInnovation::observeNodeId(int id) {
+  if (id >= next_node_id_)
+    next_node_id_ = id + 1;
+}
+
+void NeatInnovation::observeConnection(int in, int out, int innovation) {
+  connections_[std::make_pair(in, out)] = innovation;
+  if (innovation >= next_innovation_)
+    next_innovation_ = innovation + 1;
+}
 
 int NeatInnovation::connectionInnovation(int in, int out) {
   auto key = std::make_pair(in, out);
@@ -284,6 +309,41 @@ bool NeatGenome::mutateAddConnection(NeatInnovation &innovation,
     connections_.push_back({a.id, b.id,
                             innovation.connectionInnovation(a.id, b.id),
                             weight_dist(rng), true});
+    sortGenes();
+    return true;
+  }
+  return false;
+}
+
+bool NeatGenome::mutateAddInputConnection(NeatInnovation &innovation,
+                                          std::mt19937 &rng) {
+  if (input_count_ <= 0 || nodes_.empty())
+    return false;
+
+  std::vector<int> targets;
+  targets.reserve(nodes_.size());
+  for (int i = 0; i < (int)nodes_.size(); ++i) {
+    if (nodes_[i].type == 2 || nodes_[i].type == 3)
+      targets.push_back(i);
+  }
+  if (targets.empty())
+    return false;
+
+  std::uniform_int_distribution<int> input_dist(0, input_count_ - 1);
+  std::uniform_int_distribution<int> target_dist(0, (int)targets.size() - 1);
+  std::uniform_real_distribution<double> weight_dist(-1.0, 1.0);
+
+  for (int attempt = 0; attempt < 96; ++attempt) {
+    int in_id = input_dist(rng);
+    const auto &target = nodes_[targets[target_dist(rng)]];
+    if (nodeLevel(in_id) >= target.level)
+      continue;
+    if (hasConnection(in_id, target.id))
+      continue;
+
+    connections_.push_back(
+        {in_id, target.id, innovation.connectionInnovation(in_id, target.id),
+         weight_dist(rng), true});
     sortGenes();
     return true;
   }
@@ -600,16 +660,95 @@ double NeatEvolution::getAvgConnectionCount() const {
   return (double)total / population_.size();
 }
 
-void NeatEvolution::writeInFile(const std::string &file) const {
+bool NeatEvolution::writeInFile(const std::string &file,
+                                int active_tests) const {
   std::ofstream fout(file);
   if (!fout.is_open())
-    return;
+    return false;
   fout << "NEAT " << generation_ << ' ' << input_count_ << ' ' << output_count_
        << ' ' << population_.size() << ' ' << best_fitness_ << ' '
        << mutation_sigma_ << ' ' << mutation_prob_ << ' '
        << compatibility_threshold_ << '\n';
+  if (active_tests > 0)
+    fout << "STATE " << active_tests << '\n';
   for (const auto &genome : population_)
     genome.writeInFile(fout);
+  fout.flush();
+  return fout.good();
+}
+
+bool NeatEvolution::readInFile(const std::string &file, int *active_tests) {
+  std::ifstream fin(file);
+  if (!fin.is_open())
+    return false;
+
+  std::string tag;
+  int generation = 0;
+  int input_count = 0;
+  int output_count = 0;
+  int population = 0;
+  int best_fitness = -2147483647;
+  double mutation_sigma = 0.0;
+  double mutation_prob = 0.0;
+  double compatibility_threshold = 0.0;
+  if (!(fin >> tag >> generation >> input_count >> output_count >> population >>
+        best_fitness >> mutation_sigma >> mutation_prob >>
+        compatibility_threshold) ||
+      tag != "NEAT" || input_count != input_count_ ||
+      output_count != output_count_ || population <= 0) {
+    return false;
+  }
+
+  int loaded_active_tests = -1;
+  std::streampos genome_start = fin.tellg();
+  std::string maybe_state;
+  if (fin >> maybe_state) {
+    if (maybe_state == "STATE") {
+      if (!(fin >> loaded_active_tests))
+        return false;
+    } else {
+      fin.clear();
+      fin.seekg(genome_start);
+    }
+  } else {
+    return false;
+  }
+
+  std::vector<NeatGenome> loaded;
+  loaded.reserve(population);
+  for (int i = 0; i < population; ++i) {
+    NeatGenome genome;
+    if (!genome.readInFile(fin))
+      return false;
+    if (genome.inputCount() != input_count_ ||
+        genome.outputCount() != output_count_)
+      return false;
+    loaded.push_back(std::move(genome));
+  }
+
+  population_ = std::move(loaded);
+  generation_ = generation;
+  best_fitness_ = best_fitness;
+  stagnation_ = 0;
+  species_count_ = 0;
+  compatibility_threshold_ = compatibility_threshold;
+  mutation_sigma_ = mutation_sigma;
+  mutation_prob_ = mutation_prob;
+  next_species_id_ = 0;
+
+  innovation_.reset(input_count_ + output_count_ + 1);
+  for (const auto &genome : population_) {
+    for (const auto &node : genome.nodes())
+      innovation_.observeNodeId(node.id);
+    for (const auto &conn : genome.connections())
+      innovation_.observeConnection(conn.in, conn.out, conn.innovation);
+  }
+
+  species_.clear();
+  speciate();
+  if (active_tests && loaded_active_tests > 0)
+    *active_tests = loaded_active_tests;
+  return true;
 }
 
 bool NeatEvolution::writeBestInFile(const std::string &file) const {
@@ -662,11 +801,20 @@ void NeatEvolution::speciate() {
   }
 
   species_count_ = (int)species_.size();
-  if (species_count_ > 32)
-    compatibility_threshold_ +=
-        std::min(1.0, 0.02 * (double)(species_count_ - 32));
-  else if (species_count_ < 10)
-    compatibility_threshold_ = std::max(0.5, compatibility_threshold_ - 0.05);
+  compatibility_threshold_ =
+      std::clamp(compatibility_threshold_, COMPATIBILITY_MIN,
+                 COMPATIBILITY_MAX);
+  if (species_count_ > TARGET_SPECIES_MAX) {
+    compatibility_threshold_ = std::min(
+        COMPATIBILITY_MAX,
+        compatibility_threshold_ +
+            std::min(0.35, 0.01 * (double)(species_count_ - TARGET_SPECIES_MAX)));
+  } else if (species_count_ < TARGET_SPECIES_MIN) {
+    compatibility_threshold_ = std::max(
+        COMPATIBILITY_MIN,
+        compatibility_threshold_ -
+            std::min(0.45, 0.05 * (double)(TARGET_SPECIES_MIN - species_count_)));
+  }
 }
 
 void NeatEvolution::updateSpeciesStats() {
@@ -788,11 +936,21 @@ NeatGenome NeatEvolution::makeChild(const Species &species,
   }
 
   child.mutateWeights(mutation_sigma_, mutation_prob_, rng);
-  if (uni(rng) < ADD_CONNECTION_PROB) {
+  int sparse_limit = std::max(output_count_ * 8, input_count_ / 2);
+  bool sparse = child.connectionCount() < sparse_limit;
+  double input_probe_prob = sparse ? SPARSE_INPUT_PROBE_PROB : INPUT_PROBE_PROB;
+  double add_connection_prob =
+      sparse ? SPARSE_CONNECTION_PROB : ADD_CONNECTION_PROB;
+
+  if (uni(rng) < input_probe_prob) {
+    std::lock_guard<std::mutex> lock(innovation_mutex_);
+    child.mutateAddInputConnection(innovation_, rng);
+  }
+  if (uni(rng) < add_connection_prob) {
     std::lock_guard<std::mutex> lock(innovation_mutex_);
     child.mutateAddConnection(innovation_, rng);
   }
-  if (uni(rng) < ADD_NODE_PROB) {
+  if (child.connectionCount() > output_count_ && uni(rng) < ADD_NODE_PROB) {
     std::lock_guard<std::mutex> lock(innovation_mutex_);
     child.mutateAddNode(innovation_, rng);
   }

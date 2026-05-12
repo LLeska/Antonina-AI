@@ -1,5 +1,6 @@
 #include "AntoninaAPI.h"
 #include "NeatEvolution.h"
+#include "TestGenerator.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -12,6 +13,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <random>
 #include <string>
 #include <thread>
 #include <utility>
@@ -385,29 +387,37 @@ AntoninaAPI::AntoninaAPI() {
               << " | cwd: " << currentWorkingDirectory() << std::endl;
   }
 
-  int loaded_tests = 0;
-  for (; loaded_tests < ALL_TESTS; loaded_tests++) {
-    int ax, ay, Ox, Oy, gx, gy, rn;
-    if (!(fin >> ax >> ay >> Ox >> Oy >> gx >> gy >> rn))
-      break;
+  std::vector<TestGenerator::TestCase> tests;
+  tests.reserve(ALL_TESTS);
+  std::string read_error;
+  bool tests_ok = TestGenerator::readTests(fin, tests, &read_error, ALL_TESTS);
 
-    bool coords_ok = ax >= 0 && ax < 8 && ay >= 0 && ay < 8 && Ox >= 0 &&
-                     Ox < 8 && Oy >= 0 && Oy < 8 && gx >= 0 && gx < 8 &&
-                     gy >= 0 && gy < 8 && rn >= 0;
+  if (!tests_ok || tests.empty()) {
+    std::cerr << "Test0.csv is empty or invalid";
+    if (!read_error.empty())
+      std::cerr << ": " << read_error;
+    std::cerr << "; using fallback test map"
+              << std::endl;
+  } else {
+    auto stage_counts = TestGenerator::categoryCounts(tests);
 
-    if (!coords_ok) {
-      std::cerr << "Invalid Test0.csv row " << loaded_tests
-                << "; using fallback map" << std::endl;
-      install_test(loaded_tests, 1, 1, 1, 1, 1, 2, 0);
-      continue;
+    std::stable_sort(tests.begin(), tests.end(), TestGenerator::curriculumLess);
+    for (int i = 0; i < (int)tests.size(); ++i) {
+      const auto &test = tests[i];
+      install_test(i, test.ax, test.ay, test.Ox, test.Oy, test.gx, test.gy,
+                   test.rn);
     }
 
-    install_test(loaded_tests, ax, ay, Ox, Oy, gx, gy, rn);
+    static std::atomic<bool> reported_curriculum{false};
+    if (!reported_curriculum.exchange(true)) {
+      std::cerr << "Curriculum order:";
+      for (int i = 0; i < TestGenerator::CATEGORY_COUNT; ++i) {
+        std::cerr << ' ' << TestGenerator::categoryName(i) << '='
+                  << stage_counts[i];
+      }
+      std::cerr << std::endl;
+    }
   }
-
-  if (loaded_tests == 0)
-    std::cerr << "Test0.csv is empty or invalid; using fallback test map"
-              << std::endl;
 }
 
 void AntoninaAPI::ClearLab(char lab[][8]) {
@@ -449,20 +459,37 @@ bool AntoninaAPI::MakeLab(char lab[][8], int ax, int ay, int Ox, int Oy, int gx,
     logfile << "GEN-ERR";
     return false;
   }
-  int count = rn, stop = 16;
-  while (count > 0) {
-    for (int i = 0; i < 8; i++)
-      for (int j = 0; j < 8; j++)
-        if (lab[i][j] == '.' && rand() % 64 < rn &&
-            (abs(i - Ox) + abs(j - Oy) > 2)) {
-          lab[i][j] = '#';
-          count--;
-          if (count == 0)
-            return true;
-        }
-    if (--stop == 0)
-      return false;
+  if (rn <= 0)
+    return true;
+
+  std::vector<std::pair<int, int>> candidates;
+  candidates.reserve(64);
+  for (int i = 0; i < 8; i++) {
+    for (int j = 0; j < 8; j++) {
+      if (lab[i][j] == '.' && abs(i - Ox) + abs(j - Oy) > 2)
+        candidates.push_back({i, j});
+    }
   }
+  if (rn > (int)candidates.size())
+    return false;
+
+  unsigned seed = 2166136261u;
+  auto mix = [&](int value) {
+    seed ^= (unsigned)(value + 257);
+    seed *= 16777619u;
+  };
+  mix(ax);
+  mix(ay);
+  mix(Ox);
+  mix(Oy);
+  mix(gx);
+  mix(gy);
+  mix(rn);
+
+  std::mt19937 rng(seed);
+  std::shuffle(candidates.begin(), candidates.end(), rng);
+  for (int i = 0; i < rn; ++i)
+    lab[candidates[i].first][candidates[i].second] = '#';
   return true;
 }
 
@@ -931,6 +958,7 @@ int AntoninaAPI::solveFitnessBatchImpl(BatchBrain *p, int tests_to_run) {
   static thread_local std::vector<GameState> states;
   static thread_local std::vector<double> batch_in, batch_out;
   static thread_local std::vector<int> moves;
+  static thread_local std::vector<int> active_indices;
 
   auto runPhase = [&](int t_start, int t_end) -> FitnessStats {
     const int B = t_end - t_start;
@@ -941,36 +969,39 @@ int AntoninaAPI::solveFitnessBatchImpl(BatchBrain *p, int tests_to_run) {
     batch_in.resize((size_t)B * IN_SZ);
     batch_out.resize((size_t)B * OUT_SZ);
     moves.resize(B);
+    active_indices.resize(B);
 
     for (int i = 0; i < B; i++) {
       int ti = t_start + i;
       initGameState(states[i], ti);
+      active_indices[i] = i;
     }
 
     int active = B;
 
     for (int step = 1; step <= STEPS_LIMIT && active > 0; step++) {
 
-      for (int i = 0; i < B; i++) {
-        if (states[i].done)
-          continue;
-        encodeStateInto(states[i], batch_in.data() + (size_t)i * IN_SZ);
+      for (int slot = 0; slot < active; slot++) {
+        int i = active_indices[slot];
+        encodeStateInto(states[i], batch_in.data() + (size_t)slot * IN_SZ);
       }
 
-      p->feedForwardBatch(batch_in.data(), batch_out.data(), B);
-      p->getOutBatch(batch_out.data(), moves.data(), B);
+      p->feedForwardBatch(batch_in.data(), batch_out.data(), active);
+      p->getOutBatch(batch_out.data(), moves.data(), active);
 
-      for (int i = 0; i < B; i++) {
-        if (states[i].done)
-          continue;
-        char c = outputToMove(moves[i]);
+      int still_active = 0;
+      for (int slot = 0; slot < active; slot++) {
+        int i = active_indices[slot];
+        char c = outputToMove(moves[slot]);
         int r = stepGameState(states[i], c, step);
         if (r > 0) {
           states[i].done = true;
           states[i].result = r;
-          active--;
+        } else {
+          active_indices[still_active++] = i;
         }
       }
+      active = still_active;
     }
 
     FitnessStats stats;
@@ -1048,95 +1079,6 @@ void AntoninaAPI::demonstrate(Brain *p) {
           << " score=" << score << "\n";
   logfile << "#####\tAll done!\n";
   logfile.close();
-}
-
-void AntoninaAPI::writeLab(std::ofstream *fout, int ax, int ay, int Ox, int Oy,
-                           int gx, int gy, int rn) {
-  *fout << ax << " " << ay << " " << Ox << " " << Oy << " " << gx << " " << gy
-        << " " << rn << '\n';
-}
-
-void AntoninaAPI::writeInFile() {
-  std::ofstream fout("Test0.csv");
-  int n = 0;
-
-  for (int ax = 1; ax < 7; ax++) {
-    for (int ay = 1; ay < 7; ay++) {
-      for (int gy = 1; gy < 7; gy++)
-        if (gy != ay) {
-          n++;
-          writeLab(&fout, ax, ay, ax, ay, ax, gy, 0);
-        }
-      for (int gx = 1; gx < 7; gx++)
-        if (gx != ax) {
-          n++;
-          writeLab(&fout, ax, ay, ax, ay, gx, ay, 0);
-        }
-    }
-  }
-  std::cout << n << '\n';
-
-  for (int ax = 1; ax < 7; ax++)
-    for (int ay = 1; ay < 7; ay++)
-      for (int gx = 1; gx < 7; gx++)
-        if (gx != ax)
-          for (int gy = 1; gy < 7; gy++)
-            if (gy != ay) {
-              n++;
-              writeLab(&fout, ax, ay, ax, ay, gx, gy, 0);
-            }
-  std::cout << n << '\n';
-
-  for (int ax = 0; ax < 2; ax++) {
-    for (int ay = 0; ay < 8; ay++) {
-      if (ax == 1)
-        ax = 7;
-      for (int gx = 0; gx < 8; gx++)
-        for (int gy = 0; gy < 8; gy++)
-          if (!(gy == ay && gx == ax)) {
-            n++;
-            writeLab(&fout, ax, ay, ax, ay, gx, gy, 0);
-          }
-    }
-  }
-  for (int ay = 0; ay < 2; ay++) {
-    for (int ax = 1; ax < 7; ax++) {
-      if (ay == 1)
-        ay = 7;
-      for (int gx = 0; gx < 8; gx++)
-        for (int gy = 0; gy < 8; gy++)
-          if (!(gy == ay && gx == ax)) {
-            n++;
-            writeLab(&fout, ax, ay, ax, ay, gx, gy, 0);
-          }
-    }
-  }
-  for (int gx = 0; gx < 2; gx++) {
-    for (int gy = 0; gy < 8; gy++) {
-      if (gx == 1)
-        gx = 7;
-      for (int ax = 1; ax < 7; ax++)
-        for (int ay = 1; ay < 7; ay++)
-          if (!(gy == ay && gx == ax)) {
-            n++;
-            writeLab(&fout, ax, ay, ax, ay, gx, gy, 0);
-          }
-    }
-  }
-  for (int gy = 0; gy < 2; gy++) {
-    for (int gx = 1; gx < 7; gx++) {
-      if (gy == 1)
-        gy = 7;
-      for (int ax = 1; ax < 7; ax++)
-        for (int ay = 1; ay < 7; ay++)
-          if (!(gy == ay && gx == ax)) {
-            n++;
-            writeLab(&fout, ax, ay, ax, ay, gx, gy, 0);
-          }
-    }
-  }
-  std::cout << n << '\n';
-  fout.close();
 }
 
 void AntoninaAPI::initLabForAnim(int i, char out[][8]) {

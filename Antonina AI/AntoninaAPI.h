@@ -1,6 +1,7 @@
 #pragma once
 #include "Brain.h"
 #include "Perceptron.h"
+#include <fstream>
 #include <vector>
 
 class NeatGenome;
@@ -52,14 +53,6 @@ private:
                int *Oy, int *gx, int *gy);
   bool MakeLab(char lab[][8], int ax, int ay, int Ox, int Oy, int gx, int gy,
                int rn);
-  void writeLab(std::ofstream *fout, int ax, int ay, int Ox, int Oy, int gx,
-                int gy, int rn);
-  void readLab(std::ifstream *fin, int &ax, int &ay, int &Ox, int &Oy, int &gx,
-               int &gy, int &rn);
-  int GoTest(char lab[][8], bool doprint, Brain *p);
-  int GoTest(char lab[][8], int &dis, bool doprint, Brain *p);
-  void StopAll();
-
   char outputToMove(int out);
   void initGameState(GameState &s, int test_index);
   int runScalarGame(Brain *p, int test_index, GameState &s);
@@ -76,7 +69,6 @@ private:
 
 public:
   AntoninaAPI();
-  void writeInFile();
   char Move(char map[][8], Brain *p);
   void demonstrate(Brain *p);
   int GoTestImproved(char lab[][8], int &min_rover_to_bucket,

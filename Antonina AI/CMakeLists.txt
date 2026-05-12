@@ -45,6 +45,7 @@ set(CORE_SOURCES
     Perceptron.cpp
     NeuroEvolution.cpp
     NeatEvolution.cpp
+    TestGenerator.cpp
     AntoninaAPI.cpp
 )
 
@@ -89,3 +90,8 @@ add_executable(diagnose_neat
 )
 target_link_libraries(diagnose_neat PRIVATE Threads::Threads)
 target_compile_definitions(diagnose_neat PRIVATE NO_GUI=1)
+
+add_executable(generate_tests
+    TestGenerator.cpp
+    generate_tests.cpp
+)

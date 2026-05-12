@@ -31,6 +31,9 @@ public:
   explicit NeatInnovation(int next_node_id = 0);
   int connectionInnovation(int in, int out);
   int nodeInnovation(int in, int out);
+  void reset(int next_node_id = 0);
+  void observeNodeId(int id);
+  void observeConnection(int in, int out, int innovation);
 
 private:
   int next_node_id_;
@@ -53,6 +56,7 @@ public:
   void getOutBatch(const double *batch_outputs, int *out_args, int B) const;
 
   void mutateWeights(double sigma, double prob, std::mt19937 &rng);
+  bool mutateAddInputConnection(NeatInnovation &innovation, std::mt19937 &rng);
   bool mutateAddConnection(NeatInnovation &innovation, std::mt19937 &rng);
   bool mutateAddNode(NeatInnovation &innovation, std::mt19937 &rng);
 
@@ -122,7 +126,8 @@ public:
   double getAvgNodeCount() const;
   double getAvgConnectionCount() const;
   void resetBestFitness();
-  void writeInFile(const std::string &file) const;
+  bool writeInFile(const std::string &file, int active_tests = -1) const;
+  bool readInFile(const std::string &file, int *active_tests = nullptr);
   bool writeBestInFile(const std::string &file) const;
 
 private:
