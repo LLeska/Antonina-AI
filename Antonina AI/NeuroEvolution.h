@@ -48,6 +48,7 @@ public:
   int getStagnation() const { return generations_without_improvement; }
   double getEpsilon() const { return current_epsilon; }
   double getMutationProb() const { return current_mutation_prob; }
+  void configureMutation(double epsilon, double mutation_prob);
 
   void readFromFile(std::string file);
   void writeInFile(std::string file);

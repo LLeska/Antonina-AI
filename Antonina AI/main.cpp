@@ -1,77 +1,116 @@
-#include "NeatEvolution.h"
 #include "AntoninaAPI.h"
+#include "LiveStats.h"
+#include "NeatEvolution.h"
+#include "NeuroEvolution.h"
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
+#include <climits>
 #include <condition_variable>
+#include <cstddef>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <functional>
+#include <iomanip>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <mutex>
+#include <numeric>
+#include <ostream>
 #include <queue>
+#include <regex>
+#include <sstream>
+#include <streambuf>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #ifndef NO_GUI
-#include "LiveStats.h"
 #include "Viewer.h"
 #endif
 
+struct FitnessSummary {
+  int max_fitness = 0;
+  int min_fitness = 0;
+  int avg_fitness = 0;
+  int best_index = 0;
+};
+
+FitnessSummary summarizeFitness(const std::vector<int> &fitness);
+
+struct HardTestBest {
+  int test_index;
+  double weight;
+  int genome_index;
+  int score;
+  int result;
+
+  HardTestBest();
+};
+
+struct WeightedTest {
+  int index;
+  double weight;
+
+  WeightedTest(int index = 0, double weight = 1.0);
+};
+
+struct TestWeightRecord {
+  int fail_streak;
+  int fail_count;
+  int pass_count;
+  double weight;
+  int last_seen_gen;
+
+  TestWeightRecord();
+};
+
+struct TrainingSettings;
+
+class TestWeightTable {
+public:
+  void reset(int total_tests);
+  void loadOrReset(const std::string &file, int total_tests,
+                   const TrainingSettings &settings);
+  bool save(const std::string &file) const;
+  bool updateFromFailures(int gen, int active_tests,
+                          const std::vector<int> &failures,
+                          const TrainingSettings &settings);
+  std::vector<WeightedTest>
+  boostedTests(int active_tests, const TrainingSettings &settings) const;
+  double maxWeightIn(const std::vector<WeightedTest> &tests) const;
+  std::string boostedSummary(const std::vector<WeightedTest> &tests,
+                             int max_items) const;
+
+private:
+  static double weightForStreak(int streak, double max_weight, double step);
+
+  std::vector<TestWeightRecord> records_;
+};
+
+struct InputGroupRange {
+  const char *name;
+  int begin;
+  int end;
+
+  InputGroupRange(const char *name = "", int begin = 0, int end = 0);
+};
+
+const InputGroupRange *inputGroups(int &count);
+int inputGroupFor(int input_id);
+
 class ThreadPool {
 public:
-  explicit ThreadPool(size_t num_threads) : stop_(false), active_tasks_(0) {
-    workers_.reserve(num_threads);
-    for (size_t i = 0; i < num_threads; ++i) {
-      workers_.emplace_back([this] {
-        for (;;) {
-          std::function<void()> task;
-          {
-            std::unique_lock<std::mutex> lock(queue_mutex_);
-            cv_.wait(lock, [this] { return stop_ || !tasks_.empty(); });
-            if (stop_ && tasks_.empty())
-              return;
-            task = std::move(tasks_.front());
-            tasks_.pop();
-          }
-          task();
-          {
-            std::unique_lock<std::mutex> lock(done_mutex_);
-            --active_tasks_;
-          }
-          done_cv_.notify_one();
-        }
-      });
-    }
-  }
+  explicit ThreadPool(size_t num_threads);
+  ~ThreadPool();
 
-  ~ThreadPool() {
-    {
-      std::unique_lock<std::mutex> lock(queue_mutex_);
-      stop_ = true;
-    }
-    cv_.notify_all();
-    for (auto &w : workers_)
-      w.join();
-  }
-
-  void enqueue(std::function<void()> task) {
-    {
-      std::unique_lock<std::mutex> lock(done_mutex_);
-      ++active_tasks_;
-    }
-    {
-      std::unique_lock<std::mutex> lock(queue_mutex_);
-      tasks_.push(std::move(task));
-    }
-    cv_.notify_one();
-  }
-
-  void wait_all() {
-    std::unique_lock<std::mutex> lock(done_mutex_);
-    done_cv_.wait(lock, [this] { return active_tasks_ == 0; });
-  }
+  void enqueue(std::function<void()> task);
+  void wait_all();
 
 private:
   std::vector<std::thread> workers_;
@@ -82,31 +121,949 @@ private:
   bool stop_;
 };
 
-int main(int argc, char **argv) {
-  std::ios_base::sync_with_stdio(false);
-  std::cout.tie(nullptr);
-  std::cout.setf(std::ios::unitbuf);
-  std::cerr.setf(std::ios::unitbuf);
+class LiveStats;
 
-  int population = 5000;
-  int requested_threads = 0;
-  bool enable_gui = true;
-  const int input_count = AntoninaAPI::INPUT_FEATURES;
-  std::string load_file;
-  for (int i = 1; i < argc; ++i) {
-    std::string arg = argv[i];
-    if (arg == "--load" && i + 1 < argc) {
-      load_file = argv[++i];
-    } else if (arg == "--population" && i + 1 < argc) {
-      population = std::max(1, std::atoi(argv[++i]));
-    } else if (arg == "--threads" && i + 1 < argc) {
-      requested_threads = std::max(1, std::atoi(argv[++i]));
-    } else if (arg == "--no-gui") {
-      enable_gui = false;
-    } else if (load_file.empty()) {
-      load_file = arg;
+class ViewerLogStreamBuf : public std::streambuf {
+public:
+  explicit ViewerLogStreamBuf(LiveStats &stats);
+
+  void flushPartial();
+
+protected:
+  int overflow(int ch) override;
+  std::streamsize xsputn(const char *s, std::streamsize count) override;
+  int sync() override;
+
+private:
+  void appendChar(char ch);
+
+  LiveStats &stats_;
+  std::string line_;
+};
+
+class LiveStats;
+
+class ScopedViewerLogRedirect {
+public:
+  ScopedViewerLogRedirect(std::ostream &stream, LiveStats &stats);
+  ~ScopedViewerLogRedirect();
+
+private:
+  std::ostream &stream_;
+  ViewerLogStreamBuf buffer_;
+  std::streambuf *old_;
+};
+
+template <typename SaveBestFn>
+bool saveLatestBest(int best_index, int max_fitness, int &saved_best_fitness,
+                    const std::string &file, SaveBestFn save_best) {
+  if (max_fitness <= saved_best_fitness)
+    return false;
+  std::filesystem::create_directories("models");
+  if (!save_best(best_index, file, max_fitness))
+    return false;
+  saved_best_fitness = max_fitness;
+  return true;
+}
+
+class FullMasteryOptimizer {
+public:
+  FullMasteryOptimizer(std::string best_file, std::string checkpoint_file,
+                       std::string best_snapshot_prefix,
+                       std::string checkpoint_snapshot_prefix)
+      : best_file_(std::move(best_file)),
+        checkpoint_file_(std::move(checkpoint_file)),
+        best_snapshot_prefix_(std::move(best_snapshot_prefix)),
+        checkpoint_snapshot_prefix_(std::move(checkpoint_snapshot_prefix)),
+        saved_fitness_(INT_MIN), announced_(false), snapshot_saved_(false) {}
+
+  template <typename SaveBestFn, typename SavePopulationFn>
+  void handle(int gen, int wins, int max_tests, int active_tests,
+              int best_index, int max_fitness, SaveBestFn save_best,
+              SavePopulationFn save_population) {
+    if (active_tests < max_tests || wins != active_tests)
+      return;
+
+    if (!announced_) {
+      std::cout << "[mastery] gen=" << gen << " wins=" << wins << '/'
+                << max_tests
+                << " full curriculum solved; continuing optimization" << '\n';
+      announced_ = true;
+    }
+
+    if (max_fitness <= saved_fitness_)
+      return;
+
+    const int previous_fitness = saved_fitness_;
+    std::filesystem::create_directories("models");
+    bool saved_best = save_best(best_index, best_file_, max_fitness);
+    bool saved_checkpoint = save_population(checkpoint_file_, active_tests);
+
+    bool saved_snapshot = true;
+    if (!snapshot_saved_) {
+      const std::string best_snapshot =
+          best_snapshot_prefix_ + std::to_string(gen) + ".csv";
+      const std::string checkpoint_snapshot =
+          checkpoint_snapshot_prefix_ + std::to_string(gen) + ".csv";
+      saved_snapshot = save_best(best_index, best_snapshot, max_fitness) &&
+                       save_population(checkpoint_snapshot, active_tests);
+      if (saved_snapshot)
+        snapshot_saved_ = true;
+    }
+
+    if (saved_best && saved_checkpoint) {
+      saved_fitness_ = max_fitness;
+      std::cout << "[optimize] gen=" << gen << " wins=" << wins << '/'
+                << max_tests << " fitness=" << max_fitness;
+      if (previous_fitness != INT_MIN)
+        std::cout << " improved " << previous_fitness << " -> "
+                  << max_fitness;
+      else
+        std::cout << " first_full_mastery";
+      std::cout << " saved " << best_file_ << " and " << checkpoint_file_;
+      if (!saved_snapshot)
+        std::cout << " snapshot_save_failed";
+      std::cout << '\n';
+    } else {
+      std::cout << "[optimize] gen=" << gen
+                << " failed to save optimized final model files" << '\n';
     }
   }
+
+private:
+  std::string best_file_;
+  std::string checkpoint_file_;
+  std::string best_snapshot_prefix_;
+  std::string checkpoint_snapshot_prefix_;
+  int saved_fitness_;
+  bool announced_;
+  bool snapshot_saved_;
+};
+
+FitnessSummary summarizeFitness(const std::vector<int> &fitness) {
+  FitnessSummary summary;
+  if (fitness.empty())
+    return summary;
+
+  auto minmax = std::minmax_element(fitness.begin(), fitness.end());
+  summary.min_fitness = *minmax.first;
+  summary.max_fitness = *minmax.second;
+  summary.best_index = (int)(std::max_element(fitness.begin(), fitness.end()) -
+                             fitness.begin());
+  long long total = 0;
+  for (int value : fitness)
+    total += value;
+  summary.avg_fitness = (int)(total / (long long)fitness.size());
+  return summary;
+}
+
+HardTestBest::HardTestBest()
+    : test_index(0), weight(1.0), genome_index(-1), score(INT_MIN),
+      result(0) {}
+
+WeightedTest::WeightedTest(int index, double weight)
+    : index(index), weight(weight) {}
+
+TestWeightRecord::TestWeightRecord()
+    : fail_streak(0), fail_count(0), pass_count(0), weight(1.0),
+      last_seen_gen(-1) {}
+
+void TestWeightTable::reset(int total_tests) {
+  records_.assign(std::max(0, total_tests), TestWeightRecord{});
+}
+
+void TestWeightTable::loadOrReset(const std::string &file, int total_tests,
+                                  const TrainingSettings &settings) {
+  reset(total_tests);
+  std::ifstream fin(file);
+  if (!fin.is_open())
+    return;
+
+  std::string line;
+  while (std::getline(fin, line)) {
+    if (line.empty() || line[0] == '#')
+      continue;
+    for (char &ch : line) {
+      if (ch == ',' || ch == ';')
+        ch = ' ';
+    }
+    std::istringstream in(line);
+    int id = -1;
+    TestWeightRecord rec;
+    if (!(in >> id >> rec.fail_streak >> rec.fail_count >> rec.pass_count >>
+          rec.weight >> rec.last_seen_gen))
+      continue;
+    if (id < 0 || id >= (int)records_.size())
+      continue;
+    rec.fail_streak = std::max(0, rec.fail_streak);
+    rec.fail_count = std::max(0, rec.fail_count);
+    rec.pass_count = std::max(0, rec.pass_count);
+    rec.weight = weightForStreak(rec.fail_streak, settings.test_weight_max,
+                                 settings.test_weight_step);
+    records_[(size_t)id] = rec;
+  }
+}
+
+bool TestWeightTable::save(const std::string &file) const {
+  std::ofstream fout(file, std::ios::out | std::ios::trunc);
+  if (!fout.is_open())
+    return false;
+
+  fout << std::fixed << std::setprecision(3);
+  fout << "# test_id,fail_streak,fail_count,pass_count,weight,last_seen_gen\n";
+  for (int i = 0; i < (int)records_.size(); ++i) {
+    const auto &r = records_[(size_t)i];
+    fout << i << ',' << r.fail_streak << ',' << r.fail_count << ','
+         << r.pass_count << ',' << r.weight << ',' << r.last_seen_gen << '\n';
+  }
+  return fout.good();
+}
+
+bool TestWeightTable::updateFromFailures(
+    int gen, int active_tests, const std::vector<int> &failures,
+    const TrainingSettings &settings) {
+  active_tests = std::clamp(active_tests, 0, (int)records_.size());
+  std::vector<unsigned char> failed((size_t)active_tests, 0);
+  for (int idx : failures) {
+    if (idx >= 0 && idx < active_tests)
+      failed[(size_t)idx] = 1;
+  }
+
+  bool changed = false;
+  for (int i = 0; i < active_tests; ++i) {
+    auto &r = records_[(size_t)i];
+    const TestWeightRecord before = r;
+    if (failed[(size_t)i]) {
+      ++r.fail_streak;
+      ++r.fail_count;
+    } else {
+      if (r.fail_streak > 0)
+        --r.fail_streak;
+      ++r.pass_count;
+    }
+    r.last_seen_gen = gen;
+    r.weight = weightForStreak(r.fail_streak, settings.test_weight_max,
+                               settings.test_weight_step);
+    changed = changed || r.fail_streak != before.fail_streak ||
+              r.fail_count != before.fail_count ||
+              r.pass_count != before.pass_count || r.weight != before.weight;
+  }
+  return changed;
+}
+
+std::vector<WeightedTest>
+TestWeightTable::boostedTests(int active_tests,
+                              const TrainingSettings &settings) const {
+  active_tests = std::clamp(active_tests, 0, (int)records_.size());
+  std::vector<WeightedTest> tests;
+  for (int i = 0; i < active_tests; ++i) {
+    const auto &r = records_[(size_t)i];
+    if (r.weight > 1.000001)
+      tests.push_back({i, r.weight});
+  }
+  std::sort(tests.begin(), tests.end(), [&](const auto &a, const auto &b) {
+    const auto &ra = records_[(size_t)a.index];
+    const auto &rb = records_[(size_t)b.index];
+    if (a.weight != b.weight)
+      return a.weight > b.weight;
+    if (ra.fail_streak != rb.fail_streak)
+      return ra.fail_streak > rb.fail_streak;
+    if (ra.fail_count != rb.fail_count)
+      return ra.fail_count > rb.fail_count;
+    return a.index < b.index;
+  });
+  if ((int)tests.size() > settings.test_weight_max_tests)
+    tests.resize((size_t)settings.test_weight_max_tests);
+  return tests;
+}
+
+double TestWeightTable::maxWeightIn(
+    const std::vector<WeightedTest> &tests) const {
+  double max_weight = 1.0;
+  for (const auto &test : tests)
+    max_weight = std::max(max_weight, test.weight);
+  return max_weight;
+}
+
+std::string TestWeightTable::boostedSummary(
+    const std::vector<WeightedTest> &tests, int max_items) const {
+  std::ostringstream out;
+  int shown = std::min((int)tests.size(), std::max(0, max_items));
+  out << std::fixed << std::setprecision(2);
+  for (int i = 0; i < shown; ++i) {
+    if (i > 0)
+      out << ' ';
+    out << tests[(size_t)i].index << 'x' << tests[(size_t)i].weight;
+  }
+  if ((int)tests.size() > shown)
+    out << " ...";
+  return out.str();
+}
+
+double TestWeightTable::weightForStreak(int streak, double max_weight,
+                                        double step) {
+  double value = 1.0 + std::max(0, streak) * step;
+  return std::clamp(value, 1.0, max_weight);
+}
+
+InputGroupRange::InputGroupRange(const char *name, int begin, int end)
+    : name(name), begin(begin), end(end) {}
+
+const InputGroupRange *inputGroups(int &count) {
+  static const InputGroupRange groups[] = {
+      {"base", 0, 20},       {"align", 20, 36},
+      {"up", 36, 68},        {"right", 68, 100},
+      {"down", 100, 132},    {"left", 132, 164},
+      {"control", 164, 165}, {"wall", 165, 177},
+      {"edge", 177, 183},    {"bounds", 183, 191},
+  };
+  count = (int)(sizeof(groups) / sizeof(groups[0]));
+  return groups;
+}
+
+int inputGroupFor(int input_id) {
+  int group_count = 0;
+  const InputGroupRange *groups = inputGroups(group_count);
+  for (int i = 0; i < group_count; ++i) {
+    if (input_id >= groups[i].begin && input_id < groups[i].end)
+      return i;
+  }
+  return -1;
+}
+
+ThreadPool::ThreadPool(size_t num_threads) : stop_(false), active_tasks_(0) {
+  workers_.reserve(num_threads);
+  for (size_t i = 0; i < num_threads; ++i) {
+    workers_.emplace_back([this] {
+      for (;;) {
+        std::function<void()> task;
+        {
+          std::unique_lock<std::mutex> lock(queue_mutex_);
+          cv_.wait(lock, [this] { return stop_ || !tasks_.empty(); });
+          if (stop_ && tasks_.empty())
+            return;
+          task = std::move(tasks_.front());
+          tasks_.pop();
+        }
+        task();
+        {
+          std::unique_lock<std::mutex> lock(done_mutex_);
+          --active_tasks_;
+        }
+        done_cv_.notify_one();
+      }
+    });
+  }
+}
+
+ThreadPool::~ThreadPool() {
+  {
+    std::unique_lock<std::mutex> lock(queue_mutex_);
+    stop_ = true;
+  }
+  cv_.notify_all();
+  for (auto &worker : workers_)
+    worker.join();
+}
+
+void ThreadPool::enqueue(std::function<void()> task) {
+  {
+    std::unique_lock<std::mutex> lock(done_mutex_);
+    ++active_tasks_;
+  }
+  {
+    std::unique_lock<std::mutex> lock(queue_mutex_);
+    tasks_.push(std::move(task));
+  }
+  cv_.notify_one();
+}
+
+void ThreadPool::wait_all() {
+  std::unique_lock<std::mutex> lock(done_mutex_);
+  done_cv_.wait(lock, [this] { return active_tasks_ == 0; });
+}
+
+ViewerLogStreamBuf::ViewerLogStreamBuf(LiveStats &stats) : stats_(stats) {}
+
+void ViewerLogStreamBuf::flushPartial() {
+  if (!line_.empty()) {
+    stats_.appendLog(line_);
+    line_.clear();
+  }
+}
+
+int ViewerLogStreamBuf::overflow(int ch) {
+  if (ch == traits_type::eof())
+    return traits_type::not_eof(ch);
+  appendChar((char)ch);
+  return ch;
+}
+
+std::streamsize ViewerLogStreamBuf::xsputn(const char *s,
+                                           std::streamsize count) {
+  for (std::streamsize i = 0; i < count; ++i)
+    appendChar(s[i]);
+  return count;
+}
+
+int ViewerLogStreamBuf::sync() { return 0; }
+
+void ViewerLogStreamBuf::appendChar(char ch) {
+  if (ch == '\n' || ch == '\r') {
+    flushPartial();
+    return;
+  }
+  if (line_.size() < 1200)
+    line_.push_back(ch);
+}
+
+ScopedViewerLogRedirect::ScopedViewerLogRedirect(std::ostream &stream,
+                                                 LiveStats &stats)
+    : stream_(stream), buffer_(stats), old_(stream.rdbuf(&buffer_)) {}
+
+ScopedViewerLogRedirect::~ScopedViewerLogRedirect() {
+  buffer_.flushPartial();
+  stream_.rdbuf(old_);
+}
+
+int nextTestCount(int current) {
+  if (current < 5)
+    return 5;
+  if (current < 20)
+    return current + 10;
+  return current + 50;
+}
+
+int threadCountFromSettings(const TrainingSettings &settings) {
+  const unsigned hw_threads = std::thread::hardware_concurrency();
+  return settings.requested_threads > 0 ? settings.requested_threads
+                                        : std::max(1u, hw_threads);
+}
+
+std::string compactDiagnosticValue(int value) {
+  int abs_value = std::abs(value);
+  std::ostringstream out;
+  if (abs_value >= 1000000) {
+    out << std::fixed << std::setprecision(2) << (value / 1000000.0) << "M";
+  } else if (abs_value >= 1000) {
+    out << std::fixed << std::setprecision(1) << (value / 1000.0) << "k";
+  } else {
+    out << value;
+  }
+  return out.str();
+}
+
+std::string signedDiagnosticValue(int value) {
+  if (value > 0)
+    return "+" + compactDiagnosticValue(value);
+  return compactDiagnosticValue(value);
+}
+
+std::string joinTestIds(const std::vector<int> &tests, int max_items) {
+  std::ostringstream out;
+  int shown = std::min((int)tests.size(), std::max(0, max_items));
+  for (int i = 0; i < shown; ++i) {
+    if (i > 0)
+      out << ' ';
+    out << tests[i];
+  }
+  if ((int)tests.size() > shown)
+    out << " ...";
+  return out.str();
+}
+
+const char *testWeightsFileName() { return "test_weights.csv"; }
+
+std::string hardTestBestSummary(const std::vector<HardTestBest> &bests,
+                                int max_items) {
+  std::ostringstream out;
+  int shown = std::min((int)bests.size(), std::max(0, max_items));
+  for (int i = 0; i < shown; ++i) {
+    if (i > 0)
+      out << ' ';
+    const auto &best = bests[(size_t)i];
+    out << best.test_index << ':';
+    if (best.result > 0) {
+      out << "win";
+    } else {
+      out << compactDiagnosticValue(std::max(0, best.score));
+    }
+    out << '@' << best.genome_index;
+  }
+  if ((int)bests.size() > shown)
+    out << " ...";
+  return out.str();
+}
+
+std::vector<int> buildUnderusedInputPrior(const NeatEvolution &ne,
+                                          int population, int input_count,
+                                          int max_inputs,
+                                          double reach_fraction) {
+  if (max_inputs <= 0 || population <= 0 || input_count <= 0)
+    return {};
+
+  std::vector<int> counts((size_t)input_count, 0);
+  for (int i = 0; i < population; ++i) {
+    const NeatGenome *genome = ne.getGenome(i);
+    if (!genome)
+      continue;
+    const auto plan = genome->executionPlan();
+    for (int j = 0; j < plan.used_input_count; ++j) {
+      int input_id = plan.used_input_indices[j];
+      if (input_id >= 0 && input_id < input_count)
+        ++counts[(size_t)input_id];
+    }
+  }
+
+  const int threshold =
+      std::max(1, (int)std::ceil(population * reach_fraction));
+  std::vector<std::pair<int, int>> candidates;
+  candidates.reserve((size_t)input_count);
+  for (int input_id = 0; input_id < input_count; ++input_id) {
+    if (counts[(size_t)input_id] <= threshold)
+      candidates.push_back({counts[(size_t)input_id], input_id});
+  }
+  std::sort(candidates.begin(), candidates.end());
+  if ((int)candidates.size() > max_inputs)
+    candidates.resize((size_t)max_inputs);
+
+  std::vector<int> prior;
+  prior.reserve(candidates.size());
+  for (const auto &candidate : candidates)
+    prior.push_back(candidate.second);
+  return prior;
+}
+
+std::vector<int>
+buildLexicaseCaseIndices(int active_tests,
+                         const std::vector<WeightedTest> &weighted_tests,
+                         const std::vector<int> &failures, int max_cases,
+                         int gen) {
+  active_tests = std::clamp(active_tests, 0, AntoninaAPI::ALL_TESTS);
+  if (active_tests <= 0 || max_cases <= 0)
+    return {};
+
+  const int cap = std::min(active_tests, max_cases);
+  std::vector<unsigned char> seen((size_t)active_tests, 0);
+  std::vector<int> cases;
+  cases.reserve((size_t)cap);
+  auto addCase = [&](int id) {
+    if (id < 0 || id >= active_tests || seen[(size_t)id] ||
+        (int)cases.size() >= cap)
+      return;
+    seen[(size_t)id] = 1;
+    cases.push_back(id);
+  };
+
+  for (const auto &test : weighted_tests)
+    addCase(test.index);
+  for (int failure : failures)
+    addCase(failure);
+
+  const int stride = std::max(1, active_tests / std::max(1, cap));
+  const int offset = stride > 1 ? std::abs(gen) % stride : 0;
+  for (int id = offset; id < active_tests && (int)cases.size() < cap;
+       id += stride) {
+    addCase(id);
+  }
+  for (int id = 0; id < active_tests && (int)cases.size() < cap; ++id)
+    addCase(id);
+  return cases;
+}
+
+std::vector<WeightedTest>
+buildFocusedTests(int active_tests, const std::vector<WeightedTest> &weighted,
+                  const std::vector<int> &recent_failures, int radius,
+                  int max_cases) {
+  active_tests = std::clamp(active_tests, 0, AntoninaAPI::ALL_TESTS);
+  max_cases = std::clamp(max_cases, 0, active_tests);
+  if (active_tests <= 0 || max_cases <= 0)
+    return weighted;
+
+  std::vector<WeightedTest> focused;
+  focused.reserve((size_t)std::min(active_tests,
+                                   (int)weighted.size() + max_cases));
+  std::vector<unsigned char> seen((size_t)active_tests, 0);
+  auto add = [&](int id, double weight) {
+    if (id < 0 || id >= active_tests)
+      return;
+    if (seen[(size_t)id]) {
+      for (auto &test : focused) {
+        if (test.index == id) {
+          test.weight = std::max(test.weight, weight);
+          return;
+        }
+      }
+    }
+    seen[(size_t)id] = 1;
+    focused.push_back({id, weight});
+  };
+
+  for (const auto &test : weighted)
+    add(test.index, test.weight);
+
+  int added_focus = 0;
+  for (int failure : recent_failures) {
+    if (added_focus >= max_cases)
+      break;
+    for (int delta = 0; delta <= radius && added_focus < max_cases; ++delta) {
+      if (delta == 0) {
+        int before = (int)focused.size();
+        add(failure, 1.0);
+        added_focus += (int)focused.size() > before ? 1 : 0;
+        continue;
+      }
+      int before = (int)focused.size();
+      add(failure - delta, 1.0);
+      added_focus += (int)focused.size() > before ? 1 : 0;
+      before = (int)focused.size();
+      add(failure + delta, 1.0);
+      added_focus += (int)focused.size() > before ? 1 : 0;
+    }
+  }
+
+  return focused;
+}
+
+std::vector<int> buildLexicaseEpsilons(const std::vector<int> &case_scores,
+                                       int population, int case_stride,
+                                       const std::vector<int> &cases,
+                                       double epsilon_fraction) {
+  std::vector<int> epsilons(cases.size(), 0);
+  if (population <= 0 || case_stride <= 0 || case_scores.empty())
+    return epsilons;
+
+  for (int ci = 0; ci < (int)cases.size(); ++ci) {
+    const int case_index = cases[(size_t)ci];
+    if (case_index < 0 || case_index >= case_stride)
+      continue;
+    int min_score = INT_MAX;
+    int max_score = INT_MIN;
+    for (int gi = 0; gi < population; ++gi) {
+      int score = case_scores[(size_t)gi * case_stride + case_index];
+      min_score = std::min(min_score, score);
+      max_score = std::max(max_score, score);
+    }
+    const int range = std::max(0, max_score - min_score);
+    epsilons[(size_t)ci] =
+        (int)std::llround((double)range * epsilon_fraction);
+  }
+  return epsilons;
+}
+
+void rememberFailures(std::vector<int> &memory, const std::vector<int> &failures,
+                      int limit) {
+  if (limit <= 0 || failures.empty())
+    return;
+  for (int failure : failures) {
+    if (failure < 0 || failure >= AntoninaAPI::ALL_TESTS)
+      continue;
+    auto it = std::find(memory.begin(), memory.end(), failure);
+    if (it != memory.end())
+      memory.erase(it);
+    memory.insert(memory.begin(), failure);
+  }
+  if ((int)memory.size() > limit)
+    memory.resize((size_t)limit);
+}
+
+const char *moveName(int move) {
+  switch (move) {
+  case 0:
+    return "U";
+  case 1:
+    return "R";
+  case 2:
+    return "D";
+  case 3:
+    return "L";
+  default:
+    return "?";
+  }
+}
+
+std::string formatTraceSummary(const AntoninaAPI::TestTrace &trace) {
+  std::ostringstream out;
+  out << "test=" << trace.test_index << " score="
+      << compactDiagnosticValue(trace.score) << " result=";
+  if (trace.result > 0)
+    out << "win@" << trace.result;
+  else
+    out << "fail";
+  out << " steps=" << trace.steps << " r2b=" << trace.initial_r2b << "->"
+      << trace.min_r2b << " b2p=" << trace.initial_b2p << "->"
+      << trace.min_b2p << " ctrl=" << trace.initial_control << "->"
+      << trace.min_control;
+  if (trace.initial_solution > 0)
+    out << " sol=" << trace.initial_solution << "->" << trace.min_solution
+        << " cur=" << trace.current_solution;
+  out << " picked="
+      << (trace.bucket_picked ? "yes" : "no") << " invalid="
+      << trace.invalid_moves << " masked=" << trace.masked_moves
+      << " moves U/R/D/L=" << trace.moves[0] << '/' << trace.moves[1] << '/'
+      << trace.moves[2] << '/' << trace.moves[3] << " last="
+      << moveName(trace.last_move) << " pos a=(" << trace.ax << ','
+      << trace.ay << ") b=(" << trace.gx << ',' << trace.gy << ") pad=("
+      << trace.Ox << ',' << trace.Oy << ')';
+  if (trace.stones > 0)
+    out << " stones=" << trace.stones;
+  return out.str();
+}
+
+std::string validMoveMask(const std::array<bool, 4> &valid) {
+  constexpr char names[4] = {'U', 'R', 'D', 'L'};
+  std::string mask;
+  mask.reserve(4);
+  for (int i = 0; i < 4; ++i)
+    mask.push_back(valid[(size_t)i] ? names[i] : '-');
+  return mask;
+}
+
+std::string formatTraceStep(const AntoninaAPI::TestTrace &trace,
+                            const AntoninaAPI::TestTrace::Step &step) {
+  std::ostringstream out;
+  out << "test=" << trace.test_index << " s=" << step.step << " pos a=("
+      << step.ax << ',' << step.ay << ") b=(" << step.gx << ',' << step.gy
+      << ") pad=(" << step.Ox << ',' << step.Oy << ')';
+  if (step.solution >= 0)
+    out << " sol=" << step.solution;
+  out << " raw=" << moveName(step.raw_move)
+      << " sel=" << moveName(step.selected_move)
+      << " valid=" << validMoveMask(step.valid) << " out=" << std::fixed
+      << std::setprecision(3) << step.outputs[0] << '/' << step.outputs[1]
+      << '/' << step.outputs[2] << '/' << step.outputs[3]
+      << " picked=" << (step.bucket_picked ? "yes" : "no")
+      << " invalid=" << step.invalid_moves;
+  if (step.result > 0)
+    out << " result=win@" << step.result;
+  return out.str();
+}
+
+std::vector<std::string>
+buildNeatInputDiagnostics(AntoninaAPI &env, const NeatGenome &genome,
+                          int tests_to_run, int baseline_fitness) {
+  constexpr int ABLATION_LIMIT = 48;
+
+  const int input_count = genome.inputCount();
+  const auto plan = genome.executionPlan();
+  const auto &nodes = genome.nodes();
+  const auto &connections = genome.connections();
+
+  std::vector<unsigned char> reachable(input_count, 0);
+  std::vector<unsigned char> connected(input_count, 0);
+  std::vector<int> active_links(input_count, 0);
+  std::vector<double> active_abs(input_count, 0.0);
+  std::vector<int> ablation_delta(input_count, 0);
+  std::vector<unsigned char> ablated(input_count, 0);
+
+  int reachable_count = 0;
+  for (int i = 0; i < plan.used_input_count; ++i) {
+    int input_id = plan.used_input_indices[i];
+    if (input_id >= 0 && input_id < input_count && !reachable[input_id]) {
+      reachable[input_id] = 1;
+      ++reachable_count;
+    }
+  }
+
+  int enabled_count = 0;
+  for (const auto &conn : connections) {
+    if (!conn.enabled)
+      continue;
+    ++enabled_count;
+    if (conn.in >= 0 && conn.in < input_count)
+      connected[conn.in] = 1;
+  }
+
+  for (int i = 0; i < plan.connection_count; ++i) {
+    int input_id = plan.conn_in_indices[i];
+    if (input_id < 0 || input_id >= input_count)
+      continue;
+    ++active_links[input_id];
+    active_abs[input_id] += std::abs(plan.conn_weights[i]);
+  }
+
+  int connected_count = 0;
+  int connected_dead_count = 0;
+  for (int i = 0; i < input_count; ++i) {
+    if (!connected[i])
+      continue;
+    ++connected_count;
+    if (!reachable[i])
+      ++connected_dead_count;
+  }
+
+  std::vector<unsigned char> active_node(nodes.size(), 0);
+  for (int i = 0; i < plan.non_input_count; ++i) {
+    int idx = plan.non_input_indices[i];
+    if (idx >= 0 && idx < (int)active_node.size())
+      active_node[idx] = 1;
+  }
+
+  int hidden_total = 0;
+  int hidden_dead = 0;
+  for (int i = 0; i < (int)nodes.size(); ++i) {
+    if (nodes[i].type != 2)
+      continue;
+    ++hidden_total;
+    if (!active_node[i])
+      ++hidden_dead;
+  }
+
+  int group_count = 0;
+  const InputGroupRange *groups = inputGroups(group_count);
+  std::vector<int> group_total(group_count, 0);
+  std::vector<int> group_reachable(group_count, 0);
+  std::vector<int> group_connected(group_count, 0);
+  std::vector<int> group_delta(group_count, 0);
+  std::vector<int> group_ablated(group_count, 0);
+  for (int g = 0; g < group_count; ++g) {
+    group_total[g] = std::max(0, std::min(input_count, groups[g].end) -
+                                     std::min(input_count, groups[g].begin));
+  }
+  for (int i = 0; i < input_count; ++i) {
+    int g = inputGroupFor(i);
+    if (g < 0)
+      continue;
+    if (reachable[i])
+      ++group_reachable[g];
+    if (connected[i])
+      ++group_connected[g];
+  }
+
+  std::vector<int> candidates;
+  candidates.reserve(input_count);
+  for (int i = 0; i < input_count; ++i) {
+    if (reachable[i] && active_links[i] > 0)
+      candidates.push_back(i);
+  }
+  std::sort(candidates.begin(), candidates.end(), [&](int a, int b) {
+    if (active_abs[a] == active_abs[b])
+      return a < b;
+    return active_abs[a] > active_abs[b];
+  });
+
+  const int ablation_count =
+      std::min((int)candidates.size(), ABLATION_LIMIT);
+  for (int i = 0; i < ablation_count; ++i) {
+    int input_id = candidates[i];
+    NeatGenome masked = genome;
+    if (!masked.disableInputConnections(input_id))
+      continue;
+    int masked_fitness = env.solveFitnessBatch(&masked, tests_to_run);
+    int delta = baseline_fitness - masked_fitness;
+    ablation_delta[input_id] = delta;
+    ablated[input_id] = 1;
+    int g = inputGroupFor(input_id);
+    if (g >= 0) {
+      group_delta[g] += delta;
+      ++group_ablated[g];
+    }
+  }
+
+  std::vector<std::string> lines;
+  {
+    std::ostringstream out;
+    out << "inputs reachable " << reachable_count << "/" << input_count
+        << " | dead " << (input_count - reachable_count)
+        << " | connected " << connected_count
+        << " | connected-dead " << connected_dead_count;
+    lines.push_back(out.str());
+  }
+  {
+    std::ostringstream out;
+    out << "links active/enabled " << plan.connection_count << "/"
+        << enabled_count << " | inactive enabled "
+        << std::max(0, enabled_count - plan.connection_count)
+        << " | dead hidden " << hidden_dead << "/" << hidden_total;
+    lines.push_back(out.str());
+  }
+
+  std::vector<int> useful = candidates;
+  std::sort(useful.begin(), useful.end(), [&](int a, int b) {
+    return ablation_delta[a] > ablation_delta[b];
+  });
+  std::ostringstream useful_line;
+  useful_line << "top useful ablation " << ablation_count << "/"
+              << candidates.size() << ":";
+  int useful_written = 0;
+  for (int input_id : useful) {
+    if (!ablated[input_id] || ablation_delta[input_id] <= 0)
+      continue;
+    useful_line << " #" << input_id << " "
+                << signedDiagnosticValue(ablation_delta[input_id]);
+    if (++useful_written >= 5)
+      break;
+  }
+  if (useful_written == 0)
+    useful_line << " none";
+  lines.push_back(useful_line.str());
+
+  std::vector<int> harmful = candidates;
+  std::sort(harmful.begin(), harmful.end(), [&](int a, int b) {
+    return ablation_delta[a] < ablation_delta[b];
+  });
+  std::ostringstream harmful_line;
+  harmful_line << "noisy if negative:";
+  int harmful_written = 0;
+  for (int input_id : harmful) {
+    if (!ablated[input_id] || ablation_delta[input_id] >= 0)
+      continue;
+    harmful_line << " #" << input_id << " "
+                 << signedDiagnosticValue(ablation_delta[input_id]);
+    if (++harmful_written >= 4)
+      break;
+  }
+  if (harmful_written == 0)
+    harmful_line << " none";
+  lines.push_back(harmful_line.str());
+
+  std::ostringstream weak_line;
+  weak_line << "weak groups:";
+  int weak_written = 0;
+  for (int g = 0; g < group_count; ++g) {
+    if (group_total[g] <= 0)
+      continue;
+    if (group_reachable[g] * 4 > group_total[g])
+      continue;
+    weak_line << " " << groups[g].name << " " << group_reachable[g] << "/"
+              << group_total[g];
+    if (++weak_written >= 6)
+      break;
+  }
+  if (weak_written == 0)
+    weak_line << " none under 25% reach";
+  lines.push_back(weak_line.str());
+
+  std::vector<int> group_order(group_count);
+  std::iota(group_order.begin(), group_order.end(), 0);
+  std::sort(group_order.begin(), group_order.end(), [&](int a, int b) {
+    return group_delta[a] > group_delta[b];
+  });
+  std::ostringstream group_line;
+  group_line << "group loss:";
+  int group_written = 0;
+  for (int g : group_order) {
+    if (group_ablated[g] <= 0 || group_delta[g] <= 0)
+      continue;
+    group_line << " " << groups[g].name << " "
+               << signedDiagnosticValue(group_delta[g]) << " ("
+               << group_reachable[g] << "/" << group_total[g] << ")";
+    if (++group_written >= 4)
+      break;
+  }
+  if (group_written == 0)
+    group_line << " none";
+  lines.push_back(group_line.str());
+
+  return lines;
+}
+
+int runNeatTraining(const TrainingSettings &settings, LiveStats *live,
+                    const std::string &load_file) {
+  const int input_count = AntoninaAPI::INPUT_FEATURES;
+  int population = std::max(1, settings.population);
+  int loaded_active_tests =
+      std::clamp(settings.initial_active_tests, 1, AntoninaAPI::ALL_TESTS);
 
   std::cout << "Antonina AI NEAT starting: population=" << population
             << " inputs=" << input_count << " outputs=4";
@@ -115,7 +1072,6 @@ int main(int argc, char **argv) {
   std::cout << '\n';
 
   NeatEvolution ne(input_count, 4, load_file.empty() ? population : 0);
-  int loaded_active_tests = 1;
   if (!load_file.empty()) {
     if (!ne.readInFile(load_file, &loaded_active_tests)) {
       std::cerr << "failed to load NEAT checkpoint: " << load_file << '\n';
@@ -126,33 +1082,43 @@ int main(int argc, char **argv) {
               << " population=" << ne.getPopulation()
               << " active_tests=" << loaded_active_tests << '\n';
   }
-
-#ifndef NO_GUI
-  std::unique_ptr<LiveStats> live;
-  std::unique_ptr<AntoninaAPI> anim_api;
-  std::thread gui_thread;
-  if (enable_gui) {
-    live = std::make_unique<LiveStats>();
-    anim_api = std::make_unique<AntoninaAPI>();
-    gui_thread = std::thread(viewerThread, std::ref(*live),
-                             std::ref(*anim_api));
-  }
-#endif
+  ne.configure(settings.neat_mutation_sigma, settings.neat_mutation_prob,
+               settings.neat_compatibility_threshold,
+               settings.neat_survival_rate, settings.neat_add_node_prob,
+               settings.neat_add_connection_prob,
+               settings.neat_sparse_connection_prob,
+               settings.neat_input_probe_prob,
+               settings.neat_sparse_input_probe_prob,
+               settings.neat_compatibility_weight,
+               settings.neat_target_species_min,
+               settings.neat_target_species_max);
 
   int start = ne.getGeneration();
-
   population = ne.getPopulation();
+  if (population <= 0) {
+    std::cerr << "NEAT population is empty" << '\n';
+    return 1;
+  }
 
-  const unsigned hw_threads = std::thread::hardware_concurrency();
-  const int num_threads =
-      requested_threads > 0 ? requested_threads : std::max(1u, hw_threads);
-  std::cout << "Training threads=" << num_threads;
-#ifndef NO_GUI
-  std::cout << " gui=" << (enable_gui ? "on" : "off");
-#endif
-  std::cout << '\n';
+  const int base_population = population;
+  const int max_population =
+      settings.adaptive_population
+          ? std::max(base_population,
+                     settings.max_population > 0 ? settings.max_population
+                                                 : base_population * 3)
+          : base_population;
+  int population_target = base_population;
+  ne.reservePopulation(max_population);
+
+  const int num_threads = threadCountFromSettings(settings);
+  std::cout << "Training threads=" << num_threads << " gui="
+            << (live ? "on" : "off") << '\n';
+  std::cout << "Adaptive population="
+            << (settings.adaptive_population ? "on" : "off")
+            << " base=" << base_population << " max=" << max_population
+            << '\n';
+
   ThreadPool pool(num_threads);
-
   std::vector<AntoninaAPI> envs(num_threads);
 
   const int MAX_TESTS = AntoninaAPI::ALL_TESTS;
@@ -169,100 +1135,226 @@ int main(int argc, char **argv) {
     env.active_tests = std::clamp(loaded_active_tests, 1, MAX_TESTS);
   int last_promotion_gen = start - MIN_GEN_BETWEEN_PROMOTIONS;
 
-  auto nextTestCount = [](int current) {
-    if (current < 5)
-      return 5;
-    if (current < 20)
-      return current + 5;
-    return current + 10;
-  };
-
   std::vector<int> fitness(population, 0);
-  bool training_complete = false;
-  int saved_best_fitness = -2147483647;
+  int saved_best_fitness = INT_MIN;
+  FullMasteryOptimizer final_optimizer("models/best_final.csv",
+                                       "models/population_final.csv",
+                                       "models/best_final_gen_",
+                                       "models/population_final_gen_");
   std::vector<int> last_failure_log;
   int last_failure_log_gen = start - 1000;
   const int FAILURE_LOG_LIMIT = 16;
-  const int FAILURE_LOG_INTERVAL = 25;
+  const int WIN_FITNESS_UNIT = 500000;
+  int adaptive_best_fitness = INT_MIN;
+  int adaptive_best_wins = 0;
+  int adaptive_last_progress_gen = start;
+  int adaptive_last_population_change_gen =
+      start - settings.population_change_cooldown;
+  int adaptive_stable_failure_checks = 0;
+  std::vector<int> adaptive_failure_signature;
+  int last_input_diagnostics_gen = start - 1000;
+  int last_input_diagnostics_fitness = INT_MIN;
+  int last_hard_log_gen = start - 1000;
+  std::vector<int> selection_fitness(population, 0);
+  std::vector<int> lexicase_case_scores;
+  std::vector<int> recent_failure_cases;
+  TestWeightTable test_weights;
+  test_weights.loadOrReset(testWeightsFileName(), AntoninaAPI::ALL_TESTS,
+                           settings);
+  if (settings.test_weighting) {
+    if (test_weights.save(testWeightsFileName()))
+      std::cout << "[weights] using " << testWeightsFileName()
+                << " max=" << settings.test_weight_max
+                << " step=" << settings.test_weight_step
+                << " cap=" << settings.test_weight_max_tests << '\n';
+    else
+      std::cout << "[weights] loaded in memory but failed to write "
+                << testWeightsFileName() << '\n';
+  }
 
-  for (int gen = start; gen < 1000001 + start; gen++) {
+  for (int gen = start; gen < start + settings.max_generations; gen++) {
+    if (live && !live->isRunning())
+      break;
+
     auto gen_begin = std::chrono::steady_clock::now();
     if (LOG_DEBUG_STAGES && gen < 10)
       std::cout << "gen " << gen << ": fitness start" << '\n';
 
+    const int cur_tests = envs[0].active_tests;
+    const std::vector<WeightedTest> weighted_tests =
+        settings.test_weighting ? test_weights.boostedTests(cur_tests, settings)
+                                : std::vector<WeightedTest>{};
+    const bool weights_active = !weighted_tests.empty();
+    const std::vector<WeightedTest> hard_tests = buildFocusedTests(
+        cur_tests, weighted_tests, recent_failure_cases,
+        settings.neat_focus_radius, settings.neat_focus_max_cases);
+    const bool focus_active = hard_tests.size() > weighted_tests.size();
+    const int max_weight_x100 =
+        (int)std::lround(test_weights.maxWeightIn(weighted_tests) * 100.0);
+    const bool lexicase_active =
+        settings.neat_epsilon_lexicase &&
+        settings.neat_lexicase_parent_rate > 0.0 &&
+        settings.neat_lexicase_max_cases > 0;
+    if (lexicase_active) {
+      lexicase_case_scores.assign((size_t)population * cur_tests, 0);
+    } else {
+      lexicase_case_scores.clear();
+    }
+    int *lexicase_scores_ptr =
+        lexicase_case_scores.empty() ? nullptr : lexicase_case_scores.data();
+
     std::fill(fitness.begin(), fitness.end(), 0);
+    selection_fitness.resize(population);
+    std::fill(selection_fitness.begin(), selection_fitness.end(), 0);
     int *fitness_ptr = fitness.data();
-    const int job_count = std::min(population, num_threads * 16);
-    const int chunk_size = (population + job_count - 1) / job_count;
-    for (int job = 0; job < job_count; job++) {
-      const int begin = job * chunk_size;
-      const int end = std::min(population, begin + chunk_size);
-      if (begin >= end)
-        continue;
-      pool.enqueue([&ne, &envs, fitness_ptr, begin, end, job, num_threads]() {
+    int *selection_fitness_ptr = selection_fitness.data();
+    std::atomic<int> next_genome{0};
+    const int eval_block = 16;
+    const int eval_jobs = std::min(population, num_threads);
+    const int hard_slots =
+        settings.neat_hard_test_archive ? (int)hard_tests.size() : 0;
+    std::vector<std::vector<int>> job_hard_scores(
+        (size_t)eval_jobs, std::vector<int>((size_t)hard_slots, INT_MIN));
+    std::vector<std::vector<int>> job_hard_indices(
+        (size_t)eval_jobs, std::vector<int>((size_t)hard_slots, -1));
+    std::vector<std::vector<int>> job_hard_results(
+        (size_t)eval_jobs, std::vector<int>((size_t)hard_slots, 0));
+    for (int job = 0; job < eval_jobs; job++) {
+      pool.enqueue([&ne, &envs, &next_genome, fitness_ptr,
+                    selection_fitness_ptr, job, num_threads, eval_block,
+                    population, live, &hard_tests,
+                    hard_slots, &job_hard_scores, &job_hard_indices,
+                    &job_hard_results, lexicase_scores_ptr, cur_tests,
+                    complexity_penalty = settings.neat_complexity_penalty]() {
         AntoninaAPI &env = envs[job % num_threads];
-        for (int i = begin; i < end; i++)
-          fitness_ptr[i] = env.solveFitnessBatch(ne.getGenome(i), 0);
+        for (;;) {
+          if (live && !live->isRunning())
+            break;
+          const int begin = next_genome.fetch_add(eval_block);
+          if (begin >= population)
+            break;
+          const int end = std::min(population, begin + eval_block);
+          for (int i = begin; i < end; i++) {
+            if (live && !live->isRunning())
+              break;
+            int *case_row =
+                lexicase_scores_ptr
+                    ? lexicase_scores_ptr + (size_t)i * cur_tests
+                    : nullptr;
+            NeatGenome *genome = ne.getGenome(i);
+            int value = case_row ? env.solveFitnessBatch(genome, 0, case_row)
+                                 : env.solveFitnessBatch(genome, 0);
+            long long selection_value = value;
+            if (!hard_tests.empty()) {
+              for (int slot = 0; slot < (int)hard_tests.size(); ++slot) {
+                const auto &test = hard_tests[(size_t)slot];
+                int score = 0;
+                int result = env.testResult(ne.getGenome(i), test.index, &score);
+                if (slot < hard_slots &&
+                    score > job_hard_scores[(size_t)job][(size_t)slot]) {
+                  job_hard_scores[(size_t)job][(size_t)slot] = score;
+                  job_hard_indices[(size_t)job][(size_t)slot] = i;
+                  job_hard_results[(size_t)job][(size_t)slot] = result;
+                }
+                selection_value += (long long)std::llround(
+                    std::max(0.0, test.weight - 1.0) * score);
+              }
+            }
+            if (complexity_penalty > 0.0) {
+              const NeatGenome *genome = ne.getGenome(i);
+              int complexity = genome->activeConnectionCount() +
+                               2 * genome->activeNonInputNodeCount();
+              selection_value -=
+                  (long long)std::llround(complexity_penalty * complexity);
+            }
+            fitness_ptr[i] = value;
+            selection_fitness_ptr[i] = (int)std::clamp(
+                selection_value, 0LL,
+                (long long)std::numeric_limits<int>::max());
+          }
+        }
       });
     }
     pool.wait_all();
+    if (live && !live->isRunning())
+      break;
+
+    std::vector<HardTestBest> hard_bests;
+    hard_bests.reserve((size_t)hard_slots);
+    for (int slot = 0; slot < hard_slots; ++slot) {
+      HardTestBest best;
+      best.test_index = hard_tests[(size_t)slot].index;
+      best.weight = hard_tests[(size_t)slot].weight;
+      for (int job = 0; job < eval_jobs; ++job) {
+        int score = job_hard_scores[(size_t)job][(size_t)slot];
+        if (score > best.score) {
+          best.score = score;
+          best.genome_index = job_hard_indices[(size_t)job][(size_t)slot];
+          best.result = job_hard_results[(size_t)job][(size_t)slot];
+        }
+      }
+      if (best.genome_index >= 0)
+        hard_bests.push_back(best);
+    }
+
     auto fitness_done = std::chrono::steady_clock::now();
-    ne.setFitness(fitness_ptr);
+    ne.setFitness(selection_fitness_ptr);
 
-    int max_fitness = *std::max_element(fitness.begin(), fitness.end());
-    int min_fitness = *std::min_element(fitness.begin(), fitness.end());
-    long long avg_ll = 0;
-    for (int f : fitness)
-      avg_ll += f;
-    int avg_fitness = (int)(avg_ll / population);
-    int best_idx = (int)(std::max_element(fitness.begin(), fitness.end()) -
-                         fitness.begin());
+    const FitnessSummary fitness_summary = summarizeFitness(fitness);
+    int max_fitness = fitness_summary.max_fitness;
+    int min_fitness = fitness_summary.min_fitness;
+    int avg_fitness = fitness_summary.avg_fitness;
+    int best_idx = fitness_summary.best_index;
     NeatGenome *best = ne.getGenome(best_idx);
-    Brain *best_brain = static_cast<Brain *>(best);
+    Brain *best_brain = best;
 
-    int cur_tests = envs[0].active_tests;
     int best_wins = 0;
+    std::vector<int> failures;
+    int wins = 0;
+    bool checked_failures = false;
     bool promote_after_evolution = false;
     int promotion_target = cur_tests;
     if (gen - last_promotion_gen >= MIN_GEN_BETWEEN_PROMOTIONS) {
-      std::vector<int> failures;
-      int wins = envs[0].collectFailures(best_brain, cur_tests, failures,
-                                         FAILURE_LOG_LIMIT);
-      best_wins = wins;
-      if (wins == cur_tests) {
-        std::cout << "[mastery] gen=" << gen << " wins=" << wins << '/'
-                  << cur_tests << '\n';
+      bool can_master =
+          (long long)max_fitness >= (long long)cur_tests * WIN_FITNESS_UNIT;
+      bool should_log_failures =
+          gen - last_failure_log_gen >= settings.failure_log_interval;
+      best_wins = std::clamp(max_fitness / WIN_FITNESS_UNIT, 0, cur_tests);
+
+      wins = best_wins;
+      if (can_master || should_log_failures) {
+        wins =
+            envs[0].collectFailures(best_brain, cur_tests, failures, cur_tests);
+        best_wins = wins;
+        checked_failures = true;
+      }
+
+      if (checked_failures && wins == cur_tests) {
         if (cur_tests >= MAX_TESTS) {
-          std::filesystem::create_directories("models");
-          std::string final_file = "models/best_final.csv";
-          std::string gen_file =
-              "models/best_final_gen_" + std::to_string(gen) + ".csv";
-          std::string checkpoint_file =
-              "models/population_final_gen_" + std::to_string(gen) + ".csv";
-          bool saved_final = ne.writeBestInFile(final_file);
-          bool saved_gen = ne.writeBestInFile(gen_file);
-          bool saved_checkpoint = ne.writeInFile(checkpoint_file, cur_tests);
-          std::cout << "[done] gen=" << gen << " wins=" << wins << '/'
-                    << MAX_TESTS << " fitness=" << max_fitness << '\n';
-          if (saved_final && saved_gen && saved_checkpoint) {
-            std::cout << "[done] saved best model to " << final_file << " and "
-                      << gen_file << "; checkpoint to " << checkpoint_file
-                      << '\n';
-          } else {
-            std::cout << "[done] failed to save final model files" << '\n';
-          }
-          training_complete = true;
+          final_optimizer.handle(
+              gen, wins, MAX_TESTS, cur_tests, best_idx, max_fitness,
+              [&ne](int index, const std::string &file, int fitness) {
+                return ne.writeGenomeInFile(index, file, fitness);
+              },
+              [&ne](const std::string &file, int active_tests) {
+                return ne.writeInFile(file, active_tests);
+              });
         } else {
+          std::cout << "[mastery] gen=" << gen << " wins=" << wins << '/'
+                    << cur_tests << '\n';
           promotion_target = std::min(nextTestCount(cur_tests), MAX_TESTS);
           promote_after_evolution = promotion_target > cur_tests;
         }
-      } else {
+      } else if (checked_failures) {
         if (failures != last_failure_log ||
-            gen - last_failure_log_gen >= FAILURE_LOG_INTERVAL) {
+            gen - last_failure_log_gen >= settings.failure_log_interval) {
           std::cout << "[failures] gen=" << gen << " wins=" << wins << '/'
                     << cur_tests << " tests:";
-          for (int idx : failures)
-            std::cout << ' ' << idx;
+          if (failures.empty()) {
+            std::cout << " none";
+          } else {
+            std::cout << ' ' << joinTestIds(failures, FAILURE_LOG_LIMIT);
+          }
           std::cout << '\n';
           last_failure_log = failures;
           last_failure_log_gen = gen;
@@ -270,31 +1362,296 @@ int main(int argc, char **argv) {
       }
     }
 
-    if (training_complete)
-      break;
-
-    if (max_fitness > saved_best_fitness) {
-      std::filesystem::create_directories("models");
-      if (ne.writeBestInFile("models/best_latest.csv"))
-        saved_best_fitness = max_fitness;
+    if (max_fitness > adaptive_best_fitness || best_wins > adaptive_best_wins) {
+      adaptive_best_fitness = std::max(adaptive_best_fitness, max_fitness);
+      adaptive_best_wins = std::max(adaptive_best_wins, best_wins);
+      adaptive_last_progress_gen = gen;
+      adaptive_stable_failure_checks = 0;
     }
+
+    if (checked_failures) {
+      rememberFailures(recent_failure_cases, failures,
+                       settings.neat_failure_memory);
+      if (failures == adaptive_failure_signature) {
+        ++adaptive_stable_failure_checks;
+      } else {
+        adaptive_failure_signature = failures;
+        adaptive_stable_failure_checks = 1;
+      }
+
+      if (settings.test_weighting) {
+        bool changed =
+            test_weights.updateFromFailures(gen, cur_tests, failures, settings);
+        if (changed) {
+          if (!test_weights.save(testWeightsFileName())) {
+            std::cout << "[weights] gen=" << gen << " failed to save "
+                      << testWeightsFileName() << '\n';
+          }
+          std::vector<WeightedTest> next_weighted =
+              test_weights.boostedTests(cur_tests, settings);
+          if (!next_weighted.empty()) {
+            std::cout << "[weights] gen=" << gen << " boosted "
+                      << next_weighted.size() << " tests: "
+                      << test_weights.boostedSummary(next_weighted, 12)
+                      << '\n';
+          }
+        }
+      }
+
+      if (!failures.empty()) {
+        const int trace_count = std::min((int)failures.size(), 4);
+        for (int ti = 0; ti < trace_count; ++ti) {
+          AntoninaAPI::TestTrace trace;
+          envs[0].traceTest(best_brain, failures[(size_t)ti], trace);
+          std::cout << "[trace] gen=" << gen << " best "
+                    << formatTraceSummary(trace) << '\n';
+          if (ti < settings.failure_trace_detail_count) {
+            for (const auto &step : trace.steps_detail) {
+              std::cout << "[trace-step] gen=" << gen << ' '
+                        << formatTraceStep(trace, step) << '\n';
+            }
+          }
+        }
+      }
+    }
+
+    auto updatePopulationTarget = [&](int new_target, const char *reason) {
+      new_target = std::clamp(new_target, base_population, max_population);
+      if (new_target == population_target)
+        return;
+      std::cout << "[population] gen=" << gen << " target "
+                << population_target << " -> " << new_target
+                << " reason=" << reason << " wins=" << best_wins << '/'
+                << cur_tests << " stable_failures="
+                << adaptive_stable_failure_checks << '\n';
+      population_target = new_target;
+      adaptive_last_population_change_gen = gen;
+    };
+
+    if (settings.adaptive_population && promote_after_evolution &&
+        population_target > base_population) {
+      int decrease = std::max(1, population_target / 3);
+      updatePopulationTarget(population_target - decrease, "curriculum");
+    } else if (settings.adaptive_population && !promote_after_evolution &&
+               population_target < max_population && checked_failures &&
+               best_wins < cur_tests && !failures.empty() &&
+               adaptive_stable_failure_checks >=
+                   settings.population_stable_failure_checks &&
+               gen - adaptive_last_progress_gen >=
+                   settings.population_stall_generations &&
+               gen - adaptive_last_population_change_gen >=
+                   settings.population_change_cooldown) {
+      int increase = std::max(1, population_target / 2);
+      updatePopulationTarget(population_target + increase, "stalled");
+    }
+
+    if (settings.autosave_best)
+      saveLatestBest(best_idx, max_fitness, saved_best_fitness,
+                     "models/best_latest.csv",
+                     [&ne](int index, const std::string &file, int fitness) {
+                       return ne.writeGenomeInFile(index, file, fitness);
+                     });
 
     auto fitness_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                           fitness_done - gen_begin)
                           .count();
+    const int species_count_snapshot = ne.getSpeciesCount();
+    const double avg_nodes_snapshot = ne.getAvgNodeCount();
+    const double avg_connections_snapshot = ne.getAvgConnectionCount();
+    const double avg_active_connections_snapshot =
+        ne.getAvgActiveConnectionCount();
+    const double compatibility_snapshot = ne.getCompatibilityThreshold();
+    const double mutation_sigma_snapshot = ne.getMutationSigma();
+    const double mutation_prob_snapshot = ne.getMutationProb();
+    const int stagnation_snapshot = ne.getStagnation();
+
+    std::unique_ptr<Brain> best_snapshot;
+    if (live)
+      best_snapshot = best->cloneBrain();
+
+    if (live &&
+        (gen - last_input_diagnostics_gen >= 50 ||
+         max_fitness > last_input_diagnostics_fitness || checked_failures)) {
+      live->publishInputDiagnostics(buildNeatInputDiagnostics(
+          envs[0], *best, cur_tests, max_fitness));
+      last_input_diagnostics_gen = gen;
+      last_input_diagnostics_fitness =
+          std::max(last_input_diagnostics_fitness, max_fitness);
+    }
+
+    std::vector<NeatGenome> protected_elites;
+    if (settings.neat_hard_test_archive &&
+        settings.neat_hard_test_archive_size > 0 && !hard_bests.empty()) {
+      std::sort(hard_bests.begin(), hard_bests.end(),
+                [](const auto &a, const auto &b) {
+                  const bool aw = a.result > 0;
+                  const bool bw = b.result > 0;
+                  if (aw != bw)
+                    return aw > bw;
+                  if (a.weight != b.weight)
+                    return a.weight > b.weight;
+                  if (a.score != b.score)
+                    return a.score > b.score;
+                  return a.test_index < b.test_index;
+                });
+
+      std::vector<int> protected_indices;
+      protected_indices.reserve(
+          (size_t)settings.neat_hard_test_archive_size);
+      for (const auto &hard : hard_bests) {
+        if ((int)protected_elites.size() >=
+            settings.neat_hard_test_archive_size)
+          break;
+        if (hard.genome_index < 0 || hard.genome_index >= population ||
+            hard.score <= 0)
+          continue;
+        if (std::find(protected_indices.begin(), protected_indices.end(),
+                      hard.genome_index) != protected_indices.end())
+          continue;
+        protected_indices.push_back(hard.genome_index);
+        NeatGenome copy = *ne.getGenome(hard.genome_index);
+        copy.setFitness(selection_fitness[(size_t)hard.genome_index]);
+        protected_elites.push_back(std::move(copy));
+      }
+    }
+
+    int hard_wins = 0;
+    for (const auto &hard : hard_bests)
+      if (hard.result > 0)
+        ++hard_wins;
+    if (!hard_bests.empty() &&
+        (checked_failures || gen - last_hard_log_gen >= LOG_EVERY)) {
+      std::cout << "[hard] gen=" << gen << " coverage=" << hard_wins << '/'
+                << hard_bests.size() << " archive="
+                << protected_elites.size() << " tests: "
+                << hardTestBestSummary(hard_bests, 12) << '\n';
+      last_hard_log_gen = gen;
+    }
+
+    std::vector<int> input_prior;
+    if (settings.neat_input_prior &&
+        (weights_active || focus_active || !recent_failure_cases.empty()) &&
+        settings.neat_input_prior_max > 0 && !promote_after_evolution) {
+      input_prior = buildUnderusedInputPrior(
+          ne, population, input_count, settings.neat_input_prior_max,
+          settings.neat_input_prior_reach);
+    }
+    ne.setInputMutationPrior(input_prior, settings.neat_input_prior_bias);
+    const int input_prior_size = (int)input_prior.size();
+
+    std::vector<int> lexicase_cases;
+    std::vector<int> lexicase_epsilons;
+    NeatLexicaseSelection lexicase_selection;
+    const bool use_lexicase =
+        lexicase_active && !lexicase_case_scores.empty() &&
+        !promote_after_evolution;
+    if (use_lexicase) {
+      lexicase_cases = buildLexicaseCaseIndices(
+          cur_tests, hard_tests, recent_failure_cases,
+          settings.neat_lexicase_max_cases,
+          gen);
+      lexicase_epsilons = buildLexicaseEpsilons(
+          lexicase_case_scores, population, cur_tests, lexicase_cases,
+          settings.neat_lexicase_epsilon_fraction);
+      if (!lexicase_cases.empty()) {
+        lexicase_selection.case_scores = lexicase_case_scores.data();
+        lexicase_selection.population = population;
+        lexicase_selection.case_stride = cur_tests;
+        lexicase_selection.case_indices = lexicase_cases.data();
+        lexicase_selection.case_epsilons = lexicase_epsilons.data();
+        lexicase_selection.case_count = (int)lexicase_cases.size();
+        lexicase_selection.cases_per_parent =
+            settings.neat_lexicase_cases_per_parent;
+        lexicase_selection.parent_rate = settings.neat_lexicase_parent_rate;
+      }
+    }
+    const int lexicase_case_count =
+        lexicase_selection.valid() ? lexicase_selection.case_count : 0;
+
+    std::vector<std::pair<int, int>> bridge_mates;
+    if (settings.neat_bridge_children_per_case > 0 && checked_failures &&
+        !failures.empty() && !promote_after_evolution && !hard_bests.empty()) {
+      std::vector<unsigned char> failed_case((size_t)cur_tests, 0);
+      for (int test_index : failures) {
+        if (test_index >= 0 && test_index < cur_tests)
+          failed_case[(size_t)test_index] = 1;
+      }
+      for (const auto &hard : hard_bests) {
+        if (hard.test_index < 0 || hard.test_index >= cur_tests ||
+            !failed_case[(size_t)hard.test_index]) {
+          continue;
+        }
+        if (hard.result <= 0 || hard.genome_index < 0 ||
+            hard.genome_index >= population || hard.genome_index == best_idx) {
+          continue;
+        }
+        for (int k = 0; k < settings.neat_bridge_children_per_case; ++k)
+          bridge_mates.push_back({best_idx, hard.genome_index});
+      }
+      if (!bridge_mates.empty() && checked_failures) {
+        std::cout << "[bridge] gen=" << gen << " children="
+                  << bridge_mates.size() << " from failures:";
+        int shown = 0;
+        for (const auto &hard : hard_bests) {
+          if (shown >= 12)
+            break;
+          if (hard.test_index >= 0 && hard.test_index < cur_tests &&
+              failed_case[(size_t)hard.test_index] && hard.result > 0 &&
+              hard.genome_index >= 0 && hard.genome_index < population &&
+              hard.genome_index != best_idx) {
+            std::cout << ' ' << hard.test_index << '@' << hard.genome_index;
+            ++shown;
+          }
+        }
+        std::cout << '\n';
+      }
+    }
+    const int bridge_child_count = (int)bridge_mates.size();
+
+    if (LOG_DEBUG_STAGES && gen < 10)
+      std::cout << "gen " << gen << ": evolution start" << '\n';
+    auto evolution_begin = std::chrono::steady_clock::now();
+    ne.evolution(population_target,
+                 protected_elites.empty() ? nullptr : &protected_elites,
+                 lexicase_selection.valid() ? &lexicase_selection : nullptr,
+                 bridge_mates.empty() ? nullptr : &bridge_mates,
+                 settings.neat_bridge_graft_links);
+    auto evolution_done = std::chrono::steady_clock::now();
+    population = ne.getPopulation();
+    fitness.resize(population);
+    auto evolution_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            evolution_done - evolution_begin)
+                            .count();
+    if (LOG_DEBUG_STAGES && gen < 10) {
+      std::cout << "gen " << gen
+                << ": evolution done | evolution_ms: " << evolution_ms << '\n';
+    }
 
     if (gen % LOG_EVERY == 0) {
+      std::ostringstream weight_text;
+      weight_text << std::fixed << std::setprecision(2)
+                  << (max_weight_x100 / 100.0);
       std::cout << "gen " << gen << " | max: " << max_fitness
                 << " min: " << min_fitness << " avg: " << avg_fitness
                 << " | tests: " << envs[0].active_tests
-                << " | species: " << ne.getSpeciesCount()
-                << " | topo: " << (int)ne.getAvgNodeCount() << "n/"
-                << (int)ne.getAvgConnectionCount() << "c"
-                << " | compat: " << ne.getCompatibilityThreshold()
-                << " | fitness_ms: " << fitness_ms << '\n';
+                << " | pop: " << population << '/' << population_target
+                << " | species: " << species_count_snapshot
+                << " | topo: " << (int)avg_nodes_snapshot << "n/"
+                << (int)avg_connections_snapshot << "c"
+                << " active=" << (int)avg_active_connections_snapshot << "c"
+                << " | compat: " << compatibility_snapshot
+                << " | weights: " << weighted_tests.size() << "x"
+                << weight_text.str()
+                << " | hard: " << hard_wins << '/' << hard_bests.size()
+                << " arch=" << protected_elites.size()
+                << " focus=" << (hard_tests.size() - weighted_tests.size())
+                << " prior=" << input_prior_size
+                << " lex=" << lexicase_case_count
+                << " bridge=" << bridge_child_count
+                << " graft=" << settings.neat_bridge_graft_links
+                << " | fitness_ms: " << fitness_ms
+                << " | evolution_ms: " << evolution_ms << '\n';
     }
-
-#ifndef NO_GUI
 
     if (live) {
       GenSample gs{gen,
@@ -302,38 +1659,37 @@ int main(int argc, char **argv) {
                    min_fitness,
                    avg_fitness,
                    envs[0].active_tests,
+                   population,
+                   population_target,
+                   max_population,
                    best_wins,
-                   ne.getSpeciesCount(),
-                   ne.getAvgNodeCount(),
-                   ne.getAvgConnectionCount(),
-                   ne.getCompatibilityThreshold(),
+                   species_count_snapshot,
+                   avg_nodes_snapshot,
+                   avg_connections_snapshot,
+                   avg_active_connections_snapshot,
+                   compatibility_snapshot,
                    (int)fitness_ms,
-                   ne.getMutationSigma(),
-                   ne.getMutationProb(),
-                   ne.getStagnation()};
+                   (int)evolution_ms,
+                   mutation_sigma_snapshot,
+                   mutation_prob_snapshot,
+                   stagnation_snapshot,
+                   (int)weighted_tests.size(),
+                   max_weight_x100};
       live->pushSample(gs);
 
-      live->publishBest(*ne.getGenome(best_idx));
-    }
-#endif
-
-    if (LOG_DEBUG_STAGES && gen < 10)
-      std::cout << "gen " << gen << ": evolution start" << '\n';
-    auto evolution_begin = std::chrono::steady_clock::now();
-    ne.evolution();
-    auto evolution_done = std::chrono::steady_clock::now();
-    if (LOG_DEBUG_STAGES && gen < 10) {
-      auto evolution_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                              evolution_done - evolution_begin)
-                              .count();
-      std::cout << "gen " << gen
-                << ": evolution done | evolution_ms: " << evolution_ms << '\n';
+      if (best_snapshot)
+        live->publishBest(*best_snapshot);
     }
 
     if (promote_after_evolution) {
       for (auto &env : envs)
         env.active_tests = promotion_target;
       ne.resetBestFitness();
+      adaptive_best_fitness = INT_MIN;
+      adaptive_best_wins = 0;
+      adaptive_last_progress_gen = gen;
+      adaptive_stable_failure_checks = 0;
+      adaptive_failure_signature.clear();
       last_promotion_gen = gen;
       std::cout << "[mastery] gen=" << gen << " promoted " << cur_tests
                 << " -> " << promotion_target << " tests" << '\n';
@@ -342,11 +1698,9 @@ int main(int argc, char **argv) {
     if (gen > start && gen % 1000 == 0) {
       std::string best_file = "models/best_gen_" + std::to_string(gen) + ".csv";
       std::cout << "saving " << best_file << "..." << '\n';
-      ne.writeBestInFile(best_file);
+      ne.writeGenomeInFile(best_idx, best_file, max_fitness);
       std::cout << "saved " << best_file << '\n';
     }
-
-#ifndef NO_GUI
 
     if (live && live->consumeSaveRequest()) {
       std::filesystem::create_directories("models");
@@ -359,19 +1713,822 @@ int main(int argc, char **argv) {
       else
         std::cout << "failed to save " << checkpoint_file << '\n';
     }
-#endif
-#ifndef NO_GUI
-
-    if (live && !live->isRunning())
-      break;
-#endif
   }
 
+  return 0;
+}
+
+int runClassicTraining(const TrainingSettings &settings, LiveStats *live,
+                       const std::string &load_file) {
+  const int input_count = AntoninaAPI::INPUT_FEATURES;
+  int population = std::max(1, settings.population);
+  int sizes[] = {input_count, settings.classic_hidden1,
+                 settings.classic_hidden2, 4};
+  constexpr int length = 4;
+
+  std::cout << "Antonina AI classic evolution starting: population="
+            << population << " topology=" << sizes[0] << '-' << sizes[1]
+            << '-' << sizes[2] << '-' << sizes[3] << '\n';
+
+  NeuroEvolution ne(settings.classic_learning_rate, length, sizes,
+                    settings.classic_parents, population);
+  ne.configureMutation(settings.classic_mutation_sigma,
+                       settings.classic_mutation_prob);
+  if (!load_file.empty()) {
+    ne.readFromFile(load_file);
+    population = ne.getPopulation();
+    std::cout << "Loaded classic population from " << load_file
+              << " population=" << population << '\n';
+  }
+
+  if (population <= 0) {
+    std::cerr << "classic population is empty" << '\n';
+    return 1;
+  }
+  if (settings.adaptive_population) {
+    std::cout << "Adaptive population is ignored by classic evolution"
+              << '\n';
+  }
+
+  const int num_threads = threadCountFromSettings(settings);
+  std::cout << "Training threads=" << num_threads << " gui="
+            << (live ? "on" : "off") << '\n';
+
+  ThreadPool pool(num_threads);
+  std::vector<AntoninaAPI> envs(num_threads);
+  const int MAX_TESTS = AntoninaAPI::ALL_TESTS;
+  for (auto &env : envs)
+    env.active_tests =
+        std::clamp(settings.initial_active_tests, 1, AntoninaAPI::ALL_TESTS);
+
+#ifdef _DEBUG
+  const int LOG_EVERY = 1;
+  const bool LOG_DEBUG_STAGES = true;
+#else
+  const int LOG_EVERY = 100;
+  const bool LOG_DEBUG_STAGES = false;
+#endif
+
+  const int WIN_FITNESS_UNIT = 500000;
+  const int FAILURE_LOG_LIMIT = 16;
+  const int base_population = population;
+  const int max_population = population;
+  const double avg_nodes_snapshot =
+      (double)(sizes[0] + sizes[1] + sizes[2] + sizes[3]);
+  const double avg_connections_snapshot =
+      (double)(sizes[0] * sizes[1] + sizes[1] * sizes[2] + sizes[2] * sizes[3]);
+
+  std::vector<int> fitness(population, 0);
+  std::vector<int> last_failure_log;
+  int last_failure_log_gen = -1000;
+  int last_promotion_gen = 0;
+  int saved_best_fitness = INT_MIN;
+  FullMasteryOptimizer final_optimizer("models/classic_best_final.csv",
+                                       "models/classic_population_final.csv",
+                                       "models/classic_best_final_gen_",
+                                       "models/classic_population_final_gen_");
+
+  for (int gen = 0; gen < settings.max_generations; ++gen) {
+    if (live && !live->isRunning())
+      break;
+
+    auto gen_begin = std::chrono::steady_clock::now();
+    if (LOG_DEBUG_STAGES && gen < 10)
+      std::cout << "gen " << gen << ": fitness start" << '\n';
+
+    population = ne.getPopulation();
+    fitness.resize(population);
+    std::fill(fitness.begin(), fitness.end(), 0);
+    int *fitness_ptr = fitness.data();
+    std::atomic<int> next_genome{0};
+    const int eval_block = 16;
+    const int eval_jobs = std::min(population, num_threads);
+    for (int job = 0; job < eval_jobs; ++job) {
+      pool.enqueue([&ne, &envs, &next_genome, fitness_ptr, job,
+                    num_threads, eval_block, population, live]() {
+        AntoninaAPI &env = envs[job % num_threads];
+        for (;;) {
+          if (live && !live->isRunning())
+            break;
+          const int begin = next_genome.fetch_add(eval_block);
+          if (begin >= population)
+            break;
+          const int end = std::min(population, begin + eval_block);
+          for (int i = begin; i < end; ++i) {
+            if (live && !live->isRunning())
+              break;
+            fitness_ptr[i] = env.solveFitnessBatch(ne.getNeuros(i), 0);
+          }
+        }
+      });
+    }
+    pool.wait_all();
+    if (live && !live->isRunning())
+      break;
+
+    auto fitness_done = std::chrono::steady_clock::now();
+    ne.setFitness(fitness_ptr);
+
+    const FitnessSummary fitness_summary = summarizeFitness(fitness);
+    int max_fitness = fitness_summary.max_fitness;
+    int min_fitness = fitness_summary.min_fitness;
+    int avg_fitness = fitness_summary.avg_fitness;
+    int best_idx = fitness_summary.best_index;
+    Brain *best_brain = ne.getNeuros(best_idx);
+    int cur_tests = envs[0].active_tests;
+    int best_wins = std::clamp(max_fitness / WIN_FITNESS_UNIT, 0, cur_tests);
+    int wins = best_wins;
+    std::vector<int> failures;
+    bool checked_failures = false;
+    bool promote_after_evolution = false;
+    int promotion_target = cur_tests;
+
+    bool can_master =
+        (long long)max_fitness >= (long long)cur_tests * WIN_FITNESS_UNIT;
+    bool should_log_failures =
+        gen - last_failure_log_gen >= settings.failure_log_interval;
+    if (can_master || should_log_failures) {
+      wins =
+          envs[0].collectFailures(best_brain, cur_tests, failures,
+                                  FAILURE_LOG_LIMIT);
+      best_wins = wins;
+      checked_failures = true;
+    }
+
+    if (checked_failures && wins == cur_tests) {
+      if (cur_tests >= MAX_TESTS) {
+        final_optimizer.handle(
+            gen, wins, MAX_TESTS, cur_tests, best_idx, max_fitness,
+            [&ne](int index, const std::string &file, int) {
+              ne.getNeuros(index)->writeInFile(file);
+              return true;
+            },
+            [&ne](const std::string &file, int) {
+              ne.writeInFile(file);
+              return true;
+            });
+      } else {
+        std::cout << "[mastery] gen=" << gen << " wins=" << wins << '/'
+                  << cur_tests << '\n';
+        promotion_target = std::min(nextTestCount(cur_tests), MAX_TESTS);
+        promote_after_evolution = promotion_target > cur_tests;
+      }
+    } else if (checked_failures) {
+      if (failures != last_failure_log ||
+          gen - last_failure_log_gen >= settings.failure_log_interval) {
+        std::cout << "[failures] gen=" << gen << " wins=" << wins << '/'
+                  << cur_tests << " tests:";
+        for (int idx : failures)
+          std::cout << ' ' << idx;
+        std::cout << '\n';
+        last_failure_log = failures;
+        last_failure_log_gen = gen;
+      }
+    }
+
+    if (settings.autosave_best)
+      saveLatestBest(best_idx, max_fitness, saved_best_fitness,
+                     "models/classic_best_latest.csv",
+                     [&ne](int index, const std::string &file, int) {
+                       ne.getNeuros(index)->writeInFile(file);
+                       return true;
+                     });
+
+    auto fitness_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          fitness_done - gen_begin)
+                          .count();
+    std::unique_ptr<Brain> best_snapshot;
+    if (live)
+      best_snapshot = best_brain->cloneBrain();
+
+    if (LOG_DEBUG_STAGES && gen < 10)
+      std::cout << "gen " << gen << ": evolution start" << '\n';
+    auto evolution_begin = std::chrono::steady_clock::now();
+    ne.evolution();
+    auto evolution_done = std::chrono::steady_clock::now();
+    auto evolution_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            evolution_done - evolution_begin)
+                            .count();
+
+    if (gen % LOG_EVERY == 0) {
+      std::cout << "gen " << gen << " | max: " << max_fitness
+                << " min: " << min_fitness << " avg: " << avg_fitness
+                << " | tests: " << envs[0].active_tests
+                << " | pop: " << population
+                << " | fitness_ms: " << fitness_ms
+                << " | evolution_ms: " << evolution_ms << '\n';
+    }
+
+    if (live) {
+      GenSample gs{gen,
+                   max_fitness,
+                   min_fitness,
+                   avg_fitness,
+                   envs[0].active_tests,
+                   population,
+                   base_population,
+                   max_population,
+                   best_wins,
+                   0,
+                   avg_nodes_snapshot,
+                   avg_connections_snapshot,
+                   avg_connections_snapshot,
+                   0.0,
+                   (int)fitness_ms,
+                   (int)evolution_ms,
+                   ne.getEpsilon(),
+                   ne.getMutationProb(),
+                   ne.getStagnation()};
+      live->pushSample(gs);
+      if (best_snapshot)
+        live->publishBest(*best_snapshot);
+    }
+
+    if (promote_after_evolution) {
+      for (auto &env : envs)
+        env.active_tests = promotion_target;
+      ne.resetBestFitness(settings.classic_mutation_sigma,
+                          settings.classic_mutation_prob);
+      last_promotion_gen = gen;
+      std::cout << "[mastery] gen=" << gen << " promoted " << cur_tests
+                << " -> " << promotion_target << " tests" << '\n';
+    }
+
+    if (gen > 0 && gen % 1000 == 0) {
+      std::string best_file =
+          "models/classic_best_gen_" + std::to_string(gen) + ".csv";
+      std::cout << "saving " << best_file << "..." << '\n';
+      ne.getNeuros(0)->writeInFile(best_file);
+      std::cout << "saved " << best_file << '\n';
+    }
+
+    if (live && live->consumeSaveRequest()) {
+      std::filesystem::create_directories("models");
+      std::string checkpoint_file =
+          "models/classic_population_manual_gen_" + std::to_string(gen) +
+          ".csv";
+      std::cout << "saving " << checkpoint_file << "..." << '\n';
+      ne.writeInFile(checkpoint_file);
+      std::cout << "saved " << checkpoint_file << '\n';
+    }
+  }
+
+  (void)last_promotion_gen;
+  return 0;
+}
+
+void normalizeSettings(TrainingSettings &settings) {
+  settings.population = std::max(1, settings.population);
+  settings.requested_threads = std::max(0, settings.requested_threads);
+  settings.max_generations = std::max(1, settings.max_generations);
+  settings.max_population = std::max(0, settings.max_population);
+  settings.initial_active_tests =
+      std::clamp(settings.initial_active_tests, 1, AntoninaAPI::ALL_TESTS);
+  settings.failure_log_interval = std::max(1, settings.failure_log_interval);
+  settings.failure_trace_detail_count =
+      std::clamp(settings.failure_trace_detail_count, 0, 8);
+  settings.population_stall_generations =
+      std::max(1, settings.population_stall_generations);
+  settings.population_stable_failure_checks =
+      std::max(1, settings.population_stable_failure_checks);
+  settings.population_change_cooldown =
+      std::max(0, settings.population_change_cooldown);
+  settings.test_weight_max = std::clamp(settings.test_weight_max, 1.0, 1.5);
+  settings.test_weight_step =
+      std::clamp(settings.test_weight_step, 0.01, 0.5);
+  settings.test_weight_max_tests =
+      std::clamp(settings.test_weight_max_tests, 1, AntoninaAPI::ALL_TESTS);
+  settings.neat_hard_test_archive_size =
+      std::clamp(settings.neat_hard_test_archive_size, 0, 128);
+  settings.neat_input_prior_max =
+      std::clamp(settings.neat_input_prior_max, 0, AntoninaAPI::INPUT_FEATURES);
+  settings.neat_input_prior_bias =
+      std::clamp(settings.neat_input_prior_bias, 0.0, 1.0);
+  settings.neat_input_prior_reach =
+      std::clamp(settings.neat_input_prior_reach, 0.0, 1.0);
+  settings.neat_lexicase_max_cases =
+      std::clamp(settings.neat_lexicase_max_cases, 0,
+                 AntoninaAPI::ALL_TESTS);
+  settings.neat_lexicase_cases_per_parent =
+      std::clamp(settings.neat_lexicase_cases_per_parent, 0,
+                 AntoninaAPI::ALL_TESTS);
+  settings.neat_lexicase_epsilon_fraction =
+      std::clamp(settings.neat_lexicase_epsilon_fraction, 0.0, 1.0);
+  settings.neat_lexicase_parent_rate =
+      std::clamp(settings.neat_lexicase_parent_rate, 0.0, 1.0);
+  settings.neat_failure_memory =
+      std::clamp(settings.neat_failure_memory, 0, AntoninaAPI::ALL_TESTS);
+  settings.neat_focus_radius =
+      std::clamp(settings.neat_focus_radius, 0, AntoninaAPI::ALL_TESTS);
+  settings.neat_focus_max_cases =
+      std::clamp(settings.neat_focus_max_cases, 0, AntoninaAPI::ALL_TESTS);
+  settings.neat_bridge_children_per_case =
+      std::clamp(settings.neat_bridge_children_per_case, 0, 128);
+  settings.neat_bridge_graft_links =
+      std::clamp(settings.neat_bridge_graft_links, 0, 64);
+  settings.neat_mutation_sigma =
+      std::max(0.001, settings.neat_mutation_sigma);
+  settings.neat_mutation_prob =
+      std::clamp(settings.neat_mutation_prob, 0.0, 1.0);
+  settings.neat_compatibility_threshold =
+      std::clamp(settings.neat_compatibility_threshold, 0.1, 6.0);
+  settings.neat_compatibility_weight =
+      std::clamp(settings.neat_compatibility_weight, 0.1, 5.0);
+  settings.neat_target_species_min =
+      std::clamp(settings.neat_target_species_min, 1, 128);
+  settings.neat_target_species_max =
+      std::clamp(settings.neat_target_species_max,
+                 settings.neat_target_species_min, 256);
+  settings.neat_survival_rate =
+      std::clamp(settings.neat_survival_rate, 0.01, 1.0);
+  settings.neat_complexity_penalty =
+      std::clamp(settings.neat_complexity_penalty, 0.0, 1000.0);
+  settings.neat_add_node_prob =
+      std::clamp(settings.neat_add_node_prob, 0.0, 1.0);
+  settings.neat_add_connection_prob =
+      std::clamp(settings.neat_add_connection_prob, 0.0, 1.0);
+  settings.neat_sparse_connection_prob =
+      std::clamp(settings.neat_sparse_connection_prob, 0.0, 1.0);
+  settings.neat_input_probe_prob =
+      std::clamp(settings.neat_input_probe_prob, 0.0, 1.0);
+  settings.neat_sparse_input_probe_prob =
+      std::clamp(settings.neat_sparse_input_probe_prob, 0.0, 1.0);
+  settings.classic_learning_rate =
+      std::max(0.0, settings.classic_learning_rate);
+  settings.classic_parents = std::max(1, settings.classic_parents);
+  settings.classic_hidden1 = std::max(4, settings.classic_hidden1);
+  settings.classic_hidden2 = std::max(4, settings.classic_hidden2);
+  settings.classic_mutation_sigma =
+      std::max(0.001, settings.classic_mutation_sigma);
+  settings.classic_mutation_prob =
+      std::clamp(settings.classic_mutation_prob, 0.0, 1.0);
+}
+
+const char *settingsFileName() { return "training_settings.json"; }
+
+bool jsonReadString(const std::string &json, const std::string &key,
+                    std::string &value) {
+  std::regex re("\"" + key + "\"\\s*:\\s*\"([^\"]*)\"");
+  std::smatch match;
+  if (!std::regex_search(json, match, re))
+    return false;
+  value = match[1].str();
+  return true;
+}
+
+bool jsonReadNumber(const std::string &json, const std::string &key,
+                    double &value) {
+  std::regex re("\"" + key +
+                "\"\\s*:\\s*(-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)");
+  std::smatch match;
+  if (!std::regex_search(json, match, re))
+    return false;
+  value = std::atof(match[1].str().c_str());
+  return true;
+}
+
+bool jsonReadBool(const std::string &json, const std::string &key,
+                  bool &value) {
+  std::regex re("\"" + key + "\"\\s*:\\s*(true|false)");
+  std::smatch match;
+  if (!std::regex_search(json, match, re))
+    return false;
+  value = match[1].str() == "true";
+  return true;
+}
+
+void jsonReadIntSetting(const std::string &json, const std::string &key,
+                        int &target) {
+  double value = 0.0;
+  if (jsonReadNumber(json, key, value))
+    target = (int)value;
+}
+
+void jsonReadDoubleSetting(const std::string &json, const std::string &key,
+                           double &target) {
+  double value = 0.0;
+  if (jsonReadNumber(json, key, value))
+    target = value;
+}
+
+bool loadSettingsJson(TrainingSettings &settings) {
+  std::ifstream fin(settingsFileName());
+  if (!fin.is_open())
+    return false;
+
+  std::ostringstream ss;
+  ss << fin.rdbuf();
+  const std::string json = ss.str();
+
+  std::string algorithm;
+  if (jsonReadString(json, "algorithm", algorithm)) {
+    if (algorithm == "classic" || algorithm == "classic-evolution")
+      settings.algorithm = TrainingAlgorithm::Classic;
+    else if (algorithm == "neat")
+      settings.algorithm = TrainingAlgorithm::Neat;
+  }
+
+  jsonReadIntSetting(json, "population", settings.population);
+  jsonReadIntSetting(json, "threads", settings.requested_threads);
+  jsonReadIntSetting(json, "max_generations", settings.max_generations);
+  jsonReadIntSetting(json, "max_population", settings.max_population);
+  jsonReadBool(json, "adaptive_population", settings.adaptive_population);
+  jsonReadBool(json, "autosave_best", settings.autosave_best);
+  jsonReadIntSetting(json, "initial_active_tests",
+                     settings.initial_active_tests);
+  jsonReadIntSetting(json, "failure_log_interval",
+                     settings.failure_log_interval);
+  jsonReadIntSetting(json, "failure_trace_detail_count",
+                     settings.failure_trace_detail_count);
+  jsonReadIntSetting(json, "population_stall_generations",
+                     settings.population_stall_generations);
+  jsonReadIntSetting(json, "population_stable_failure_checks",
+                     settings.population_stable_failure_checks);
+  jsonReadIntSetting(json, "population_change_cooldown",
+                     settings.population_change_cooldown);
+  if (!jsonReadBool(json, "test_weighting", settings.test_weighting))
+    jsonReadBool(json, "failure_focus", settings.test_weighting);
+  jsonReadDoubleSetting(json, "test_weight_max", settings.test_weight_max);
+  jsonReadDoubleSetting(json, "test_weight_step", settings.test_weight_step);
+  jsonReadIntSetting(json, "test_weight_max_tests",
+                     settings.test_weight_max_tests);
+
+  jsonReadBool(json, "neat_hard_test_archive",
+               settings.neat_hard_test_archive);
+  jsonReadIntSetting(json, "neat_hard_test_archive_size",
+                     settings.neat_hard_test_archive_size);
+  jsonReadBool(json, "neat_input_prior", settings.neat_input_prior);
+  jsonReadIntSetting(json, "neat_input_prior_max",
+                     settings.neat_input_prior_max);
+  jsonReadDoubleSetting(json, "neat_input_prior_bias",
+                        settings.neat_input_prior_bias);
+  jsonReadDoubleSetting(json, "neat_input_prior_reach",
+                        settings.neat_input_prior_reach);
+  jsonReadBool(json, "neat_epsilon_lexicase",
+               settings.neat_epsilon_lexicase);
+  jsonReadIntSetting(json, "neat_lexicase_max_cases",
+                     settings.neat_lexicase_max_cases);
+  jsonReadIntSetting(json, "neat_lexicase_cases_per_parent",
+                     settings.neat_lexicase_cases_per_parent);
+  jsonReadDoubleSetting(json, "neat_lexicase_epsilon_fraction",
+                        settings.neat_lexicase_epsilon_fraction);
+  jsonReadDoubleSetting(json, "neat_lexicase_parent_rate",
+                        settings.neat_lexicase_parent_rate);
+  jsonReadIntSetting(json, "neat_failure_memory",
+                     settings.neat_failure_memory);
+  jsonReadIntSetting(json, "neat_focus_radius", settings.neat_focus_radius);
+  jsonReadIntSetting(json, "neat_focus_max_cases",
+                     settings.neat_focus_max_cases);
+  jsonReadIntSetting(json, "neat_bridge_children_per_case",
+                     settings.neat_bridge_children_per_case);
+  jsonReadIntSetting(json, "neat_bridge_graft_links",
+                     settings.neat_bridge_graft_links);
+  jsonReadDoubleSetting(json, "neat_mutation_sigma",
+                        settings.neat_mutation_sigma);
+  jsonReadDoubleSetting(json, "neat_mutation_prob",
+                        settings.neat_mutation_prob);
+  jsonReadDoubleSetting(json, "neat_compatibility_threshold",
+                        settings.neat_compatibility_threshold);
+  jsonReadDoubleSetting(json, "neat_compatibility_weight",
+                        settings.neat_compatibility_weight);
+  jsonReadIntSetting(json, "neat_target_species_min",
+                     settings.neat_target_species_min);
+  jsonReadIntSetting(json, "neat_target_species_max",
+                     settings.neat_target_species_max);
+  jsonReadDoubleSetting(json, "neat_survival_rate",
+                        settings.neat_survival_rate);
+  jsonReadDoubleSetting(json, "neat_complexity_penalty",
+                        settings.neat_complexity_penalty);
+  jsonReadDoubleSetting(json, "neat_add_node_prob",
+                        settings.neat_add_node_prob);
+  jsonReadDoubleSetting(json, "neat_add_connection_prob",
+                        settings.neat_add_connection_prob);
+  jsonReadDoubleSetting(json, "neat_sparse_connection_prob",
+                        settings.neat_sparse_connection_prob);
+  jsonReadDoubleSetting(json, "neat_input_probe_prob",
+                        settings.neat_input_probe_prob);
+  jsonReadDoubleSetting(json, "neat_sparse_input_probe_prob",
+                        settings.neat_sparse_input_probe_prob);
+
+  jsonReadDoubleSetting(json, "classic_learning_rate",
+                        settings.classic_learning_rate);
+  jsonReadIntSetting(json, "classic_parents", settings.classic_parents);
+  jsonReadIntSetting(json, "classic_hidden1", settings.classic_hidden1);
+  jsonReadIntSetting(json, "classic_hidden2", settings.classic_hidden2);
+  jsonReadDoubleSetting(json, "classic_mutation_sigma",
+                        settings.classic_mutation_sigma);
+  jsonReadDoubleSetting(json, "classic_mutation_prob",
+                        settings.classic_mutation_prob);
+  normalizeSettings(settings);
+  return true;
+}
+
+bool saveSettingsJson(const TrainingSettings &settings) {
+  std::ofstream fout(settingsFileName(), std::ios::out | std::ios::trunc);
+  if (!fout.is_open())
+    return false;
+
+  fout << std::boolalpha << std::fixed << std::setprecision(6);
+  fout << "{\n";
+  fout << "  \"algorithm\": \""
+       << (settings.algorithm == TrainingAlgorithm::Neat ? "neat" : "classic")
+       << "\",\n";
+  fout << "  \"population\": " << settings.population << ",\n";
+  fout << "  \"threads\": " << settings.requested_threads << ",\n";
+  fout << "  \"max_generations\": " << settings.max_generations << ",\n";
+  fout << "  \"max_population\": " << settings.max_population << ",\n";
+  fout << "  \"adaptive_population\": " << settings.adaptive_population
+       << ",\n";
+  fout << "  \"autosave_best\": " << settings.autosave_best << ",\n";
+  fout << "  \"initial_active_tests\": " << settings.initial_active_tests
+       << ",\n";
+  fout << "  \"failure_log_interval\": " << settings.failure_log_interval
+       << ",\n";
+  fout << "  \"failure_trace_detail_count\": "
+       << settings.failure_trace_detail_count << ",\n";
+  fout << "  \"population_stall_generations\": "
+       << settings.population_stall_generations << ",\n";
+  fout << "  \"population_stable_failure_checks\": "
+       << settings.population_stable_failure_checks << ",\n";
+  fout << "  \"population_change_cooldown\": "
+       << settings.population_change_cooldown << ",\n";
+  fout << "  \"test_weighting\": " << settings.test_weighting << ",\n";
+  fout << "  \"test_weight_max\": " << settings.test_weight_max << ",\n";
+  fout << "  \"test_weight_step\": " << settings.test_weight_step << ",\n";
+  fout << "  \"test_weight_max_tests\": " << settings.test_weight_max_tests
+       << ",\n";
+  fout << "  \"neat_hard_test_archive\": "
+       << settings.neat_hard_test_archive << ",\n";
+  fout << "  \"neat_hard_test_archive_size\": "
+       << settings.neat_hard_test_archive_size << ",\n";
+  fout << "  \"neat_input_prior\": " << settings.neat_input_prior << ",\n";
+  fout << "  \"neat_input_prior_max\": " << settings.neat_input_prior_max
+       << ",\n";
+  fout << "  \"neat_input_prior_bias\": " << settings.neat_input_prior_bias
+       << ",\n";
+  fout << "  \"neat_input_prior_reach\": " << settings.neat_input_prior_reach
+       << ",\n";
+  fout << "  \"neat_epsilon_lexicase\": "
+       << settings.neat_epsilon_lexicase << ",\n";
+  fout << "  \"neat_lexicase_max_cases\": "
+       << settings.neat_lexicase_max_cases << ",\n";
+  fout << "  \"neat_lexicase_cases_per_parent\": "
+       << settings.neat_lexicase_cases_per_parent << ",\n";
+  fout << "  \"neat_lexicase_epsilon_fraction\": "
+       << settings.neat_lexicase_epsilon_fraction << ",\n";
+  fout << "  \"neat_lexicase_parent_rate\": "
+       << settings.neat_lexicase_parent_rate << ",\n";
+  fout << "  \"neat_failure_memory\": " << settings.neat_failure_memory
+       << ",\n";
+  fout << "  \"neat_focus_radius\": " << settings.neat_focus_radius << ",\n";
+  fout << "  \"neat_focus_max_cases\": " << settings.neat_focus_max_cases
+       << ",\n";
+  fout << "  \"neat_bridge_children_per_case\": "
+       << settings.neat_bridge_children_per_case << ",\n";
+  fout << "  \"neat_bridge_graft_links\": "
+       << settings.neat_bridge_graft_links << ",\n";
+  fout << "  \"neat_mutation_sigma\": " << settings.neat_mutation_sigma
+       << ",\n";
+  fout << "  \"neat_mutation_prob\": " << settings.neat_mutation_prob
+       << ",\n";
+  fout << "  \"neat_compatibility_threshold\": "
+       << settings.neat_compatibility_threshold << ",\n";
+  fout << "  \"neat_compatibility_weight\": "
+       << settings.neat_compatibility_weight << ",\n";
+  fout << "  \"neat_target_species_min\": "
+       << settings.neat_target_species_min << ",\n";
+  fout << "  \"neat_target_species_max\": "
+       << settings.neat_target_species_max << ",\n";
+  fout << "  \"neat_survival_rate\": " << settings.neat_survival_rate
+       << ",\n";
+  fout << "  \"neat_complexity_penalty\": "
+       << settings.neat_complexity_penalty << ",\n";
+  fout << "  \"neat_add_node_prob\": " << settings.neat_add_node_prob
+       << ",\n";
+  fout << "  \"neat_add_connection_prob\": "
+       << settings.neat_add_connection_prob << ",\n";
+  fout << "  \"neat_sparse_connection_prob\": "
+       << settings.neat_sparse_connection_prob << ",\n";
+  fout << "  \"neat_input_probe_prob\": " << settings.neat_input_probe_prob
+       << ",\n";
+  fout << "  \"neat_sparse_input_probe_prob\": "
+       << settings.neat_sparse_input_probe_prob << ",\n";
+  fout << "  \"classic_learning_rate\": " << settings.classic_learning_rate
+       << ",\n";
+  fout << "  \"classic_parents\": " << settings.classic_parents << ",\n";
+  fout << "  \"classic_hidden1\": " << settings.classic_hidden1 << ",\n";
+  fout << "  \"classic_hidden2\": " << settings.classic_hidden2 << ",\n";
+  fout << "  \"classic_mutation_sigma\": " << settings.classic_mutation_sigma
+       << ",\n";
+  fout << "  \"classic_mutation_prob\": " << settings.classic_mutation_prob
+       << "\n";
+  fout << "}\n";
+  return true;
+}
+
+bool parseAlgorithm(const std::string &value, TrainingAlgorithm &algorithm) {
+  if (value == "neat" || value == "NEAT") {
+    algorithm = TrainingAlgorithm::Neat;
+    return true;
+  }
+  if (value == "classic" || value == "evolution" || value == "evo" ||
+      value == "classic-evolution") {
+    algorithm = TrainingAlgorithm::Classic;
+    return true;
+  }
+  return false;
+}
+
+int main(int argc, char **argv) {
+  std::ios_base::sync_with_stdio(false);
+  std::cout.tie(nullptr);
+  std::cout.setf(std::ios::unitbuf);
+  std::cerr.setf(std::ios::unitbuf);
+
+  TrainingSettings settings;
+  bool loaded_settings = loadSettingsJson(settings);
+  bool enable_gui = true;
+  std::string load_file;
+  for (int i = 1; i < argc; ++i) {
+    std::string arg = argv[i];
+    if (arg == "--load" && i + 1 < argc) {
+      load_file = argv[++i];
+    } else if (arg == "--algorithm" && i + 1 < argc) {
+      TrainingAlgorithm parsed;
+      if (parseAlgorithm(argv[++i], parsed))
+        settings.algorithm = parsed;
+    } else if (arg == "--classic") {
+      settings.algorithm = TrainingAlgorithm::Classic;
+    } else if (arg == "--neat") {
+      settings.algorithm = TrainingAlgorithm::Neat;
+    } else if (arg == "--population" && i + 1 < argc) {
+      settings.population = std::atoi(argv[++i]);
+    } else if (arg == "--threads" && i + 1 < argc) {
+      settings.requested_threads = std::atoi(argv[++i]);
+    } else if (arg == "--max-generations" && i + 1 < argc) {
+      settings.max_generations = std::atoi(argv[++i]);
+    } else if (arg == "--max-population" && i + 1 < argc) {
+      settings.max_population = std::atoi(argv[++i]);
+    } else if (arg == "--active-tests" && i + 1 < argc) {
+      settings.initial_active_tests = std::atoi(argv[++i]);
+    } else if (arg == "--trace-detail-count" && i + 1 < argc) {
+      settings.failure_trace_detail_count = std::atoi(argv[++i]);
+    } else if (arg == "--no-trace-detail") {
+      settings.failure_trace_detail_count = 0;
+    } else if (arg == "--fixed-population") {
+      settings.adaptive_population = false;
+    } else if (arg == "--no-test-weights" || arg == "--no-failure-focus") {
+      settings.test_weighting = false;
+    } else if (arg == "--test-weight-max" && i + 1 < argc) {
+      settings.test_weight_max = std::atof(argv[++i]);
+    } else if (arg == "--test-weight-step" && i + 1 < argc) {
+      settings.test_weight_step = std::atof(argv[++i]);
+    } else if ((arg == "--test-weight-max-tests" ||
+                arg == "--failure-focus-max-tests") &&
+               i + 1 < argc) {
+      settings.test_weight_max_tests = std::atoi(argv[++i]);
+    } else if ((arg == "--failure-focus-weight" ||
+                arg == "--failure-focus-stable") &&
+               i + 1 < argc) {
+      ++i;
+    } else if (arg == "--no-hard-test-archive") {
+      settings.neat_hard_test_archive = false;
+    } else if (arg == "--hard-test-archive-size" && i + 1 < argc) {
+      settings.neat_hard_test_archive_size = std::atoi(argv[++i]);
+    } else if (arg == "--no-input-prior") {
+      settings.neat_input_prior = false;
+    } else if (arg == "--input-prior-max" && i + 1 < argc) {
+      settings.neat_input_prior_max = std::atoi(argv[++i]);
+    } else if (arg == "--input-prior-bias" && i + 1 < argc) {
+      settings.neat_input_prior_bias = std::atof(argv[++i]);
+    } else if (arg == "--input-prior-reach" && i + 1 < argc) {
+      settings.neat_input_prior_reach = std::atof(argv[++i]);
+    } else if (arg == "--no-epsilon-lexicase" ||
+               arg == "--no-lexicase") {
+      settings.neat_epsilon_lexicase = false;
+    } else if (arg == "--lexicase-max-cases" && i + 1 < argc) {
+      settings.neat_lexicase_max_cases = std::atoi(argv[++i]);
+    } else if (arg == "--lexicase-cases-per-parent" && i + 1 < argc) {
+      settings.neat_lexicase_cases_per_parent = std::atoi(argv[++i]);
+    } else if (arg == "--lexicase-epsilon" && i + 1 < argc) {
+      settings.neat_lexicase_epsilon_fraction = std::atof(argv[++i]);
+    } else if (arg == "--lexicase-parent-rate" && i + 1 < argc) {
+      settings.neat_lexicase_parent_rate = std::atof(argv[++i]);
+    } else if (arg == "--failure-memory" && i + 1 < argc) {
+      settings.neat_failure_memory = std::atoi(argv[++i]);
+    } else if (arg == "--focus-radius" && i + 1 < argc) {
+      settings.neat_focus_radius = std::atoi(argv[++i]);
+    } else if (arg == "--focus-max-cases" && i + 1 < argc) {
+      settings.neat_focus_max_cases = std::atoi(argv[++i]);
+    } else if (arg == "--bridge-children-per-case" && i + 1 < argc) {
+      settings.neat_bridge_children_per_case = std::atoi(argv[++i]);
+    } else if (arg == "--bridge-graft-links" && i + 1 < argc) {
+      settings.neat_bridge_graft_links = std::atoi(argv[++i]);
+    } else if (arg == "--no-autosave") {
+      settings.autosave_best = false;
+    } else if (arg == "--parents" && i + 1 < argc) {
+      settings.classic_parents = std::atoi(argv[++i]);
+    } else if (arg == "--learning-rate" && i + 1 < argc) {
+      settings.classic_learning_rate = std::atof(argv[++i]);
+    } else if (arg == "--hidden1" && i + 1 < argc) {
+      settings.classic_hidden1 = std::atoi(argv[++i]);
+    } else if (arg == "--hidden2" && i + 1 < argc) {
+      settings.classic_hidden2 = std::atoi(argv[++i]);
+    } else if (arg == "--neat-sigma" && i + 1 < argc) {
+      settings.neat_mutation_sigma = std::atof(argv[++i]);
+    } else if (arg == "--neat-mut-prob" && i + 1 < argc) {
+      settings.neat_mutation_prob = std::atof(argv[++i]);
+    } else if (arg == "--neat-compat" && i + 1 < argc) {
+      settings.neat_compatibility_threshold = std::atof(argv[++i]);
+    } else if (arg == "--neat-compat-weight" && i + 1 < argc) {
+      settings.neat_compatibility_weight = std::atof(argv[++i]);
+    } else if (arg == "--neat-target-species-min" && i + 1 < argc) {
+      settings.neat_target_species_min = std::atoi(argv[++i]);
+    } else if (arg == "--neat-target-species-max" && i + 1 < argc) {
+      settings.neat_target_species_max = std::atoi(argv[++i]);
+    } else if (arg == "--neat-survival" && i + 1 < argc) {
+      settings.neat_survival_rate = std::atof(argv[++i]);
+    } else if (arg == "--neat-complexity-penalty" && i + 1 < argc) {
+      settings.neat_complexity_penalty = std::atof(argv[++i]);
+    } else if (arg == "--neat-add-node" && i + 1 < argc) {
+      settings.neat_add_node_prob = std::atof(argv[++i]);
+    } else if (arg == "--neat-add-connection" && i + 1 < argc) {
+      settings.neat_add_connection_prob = std::atof(argv[++i]);
+    } else if (arg == "--neat-sparse-connection" && i + 1 < argc) {
+      settings.neat_sparse_connection_prob = std::atof(argv[++i]);
+    } else if (arg == "--neat-input-probe" && i + 1 < argc) {
+      settings.neat_input_probe_prob = std::atof(argv[++i]);
+    } else if (arg == "--neat-sparse-input-probe" && i + 1 < argc) {
+      settings.neat_sparse_input_probe_prob = std::atof(argv[++i]);
+    } else if (arg == "--classic-sigma" && i + 1 < argc) {
+      settings.classic_mutation_sigma = std::atof(argv[++i]);
+    } else if (arg == "--classic-mut-prob" && i + 1 < argc) {
+      settings.classic_mutation_prob = std::atof(argv[++i]);
+    } else if (arg == "--no-gui") {
+      enable_gui = false;
+    } else if (load_file.empty()) {
+      load_file = arg;
+    }
+  }
+  normalizeSettings(settings);
+
+#ifdef NO_GUI
+  enable_gui = false;
+#endif
+
+  std::unique_ptr<LiveStats> live;
+  std::unique_ptr<AntoninaAPI> anim_api;
+  std::thread gui_thread;
+  std::unique_ptr<ScopedViewerLogRedirect> cout_redirect;
+  std::unique_ptr<ScopedViewerLogRedirect> cerr_redirect;
+
 #ifndef NO_GUI
+  if (enable_gui) {
+    live = std::make_unique<LiveStats>();
+    live->setDefaultSettings(settings);
+    cout_redirect =
+        std::make_unique<ScopedViewerLogRedirect>(std::cout, *live);
+    cerr_redirect =
+        std::make_unique<ScopedViewerLogRedirect>(std::cerr, *live);
+
+    anim_api = std::make_unique<AntoninaAPI>();
+    gui_thread =
+        std::thread(viewerThread, std::ref(*live), std::ref(*anim_api));
+    if (loaded_settings)
+      std::cout << "loaded settings from " << settingsFileName() << '\n';
+    std::cout << "viewer ready: waiting for start" << '\n';
+    std::string gui_load_file;
+    if (!live->waitForStart(settings, &gui_load_file)) {
+      if (gui_thread.joinable())
+        gui_thread.join();
+      return 0;
+    }
+    if (!gui_load_file.empty())
+      load_file = gui_load_file;
+    normalizeSettings(settings);
+  }
+#endif
+
+  if (!enable_gui && loaded_settings)
+    std::cout << "loaded settings from " << settingsFileName() << '\n';
+  if (enable_gui) {
+    if (saveSettingsJson(settings))
+      std::cout << "saved settings to " << settingsFileName() << '\n';
+    else
+      std::cerr << "failed to save settings to " << settingsFileName()
+                << '\n';
+  }
+
+  int rc = settings.algorithm == TrainingAlgorithm::Neat
+               ? runNeatTraining(settings, live.get(), load_file)
+               : runClassicTraining(settings, live.get(), load_file);
+
   if (live)
     live->requestStop();
+#ifndef NO_GUI
   if (gui_thread.joinable())
     gui_thread.join();
 #endif
-  return 0;
+
+  return rc;
 }

@@ -234,6 +234,12 @@ int Perceptron::getOut() {
   return maxi;
 }
 
+double Perceptron::outputValue(int index) const {
+  if (!layers || length <= 0 || index < 0 || index >= layers[length - 1].size)
+    return 0.0;
+  return layers[length - 1].neurons[index];
+}
+
 std::unique_ptr<Brain> Perceptron::cloneBrain() const {
   return std::make_unique<Perceptron>(*this);
 }

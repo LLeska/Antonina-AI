@@ -1,8 +1,11 @@
 #include "TestGenerator.h"
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cmath>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 
 namespace TestGenerator {
@@ -23,10 +26,23 @@ enum Category {
   STONES = 11
 };
 
+constexpr int BOARD_SIZE = 8;
+constexpr int BOARD_CELLS = BOARD_SIZE * BOARD_SIZE;
+constexpr int NO_STONE_CASES = BOARD_CELLS * BOARD_CELLS * BOARD_CELLS;
+constexpr int STEP_LIMIT = 40;
+constexpr int UNSOLVED_STEP = 1000;
+
 bool inBounds(int x, int y) { return x >= 0 && x < 8 && y >= 0 && y < 8; }
 
 bool sameCell(int ax, int ay, int bx, int by) {
   return ax == bx && ay == by;
+}
+
+int cellIndex(int x, int y) { return x * BOARD_SIZE + y; }
+
+void cellCoords(int index, int &x, int &y) {
+  x = index / BOARD_SIZE;
+  y = index % BOARD_SIZE;
 }
 
 bool onEdge(int x, int y) { return x == 0 || x == 7 || y == 0 || y == 7; }
@@ -67,6 +83,145 @@ int edgeRank(const TestCase &test) {
   if (inCorner(test.Ox, test.Oy))
     value += 8;
   return value;
+}
+
+int sign(int v) { return (v > 0) - (v < 0); }
+
+int directionBucket(const TestCase &test) {
+  int dx = sign(test.gx - test.Ox);
+  int dy = sign(test.gy - test.Oy);
+  return (dx + 1) * 3 + (dy + 1);
+}
+
+int noStoneCaseIndex(const TestCase &test) {
+  return (cellIndex(test.ax, test.ay) * BOARD_CELLS +
+          cellIndex(test.Ox, test.Oy)) *
+             BOARD_CELLS +
+         cellIndex(test.gx, test.gy);
+}
+
+int solveNoStoneStepsUncached(const TestCase &test) {
+  if (!validTest(test))
+    return UNSOLVED_STEP;
+
+  const int home = cellIndex(test.Ox, test.Oy);
+  const int start_agent = cellIndex(test.ax, test.ay);
+  const int start_bucket = cellIndex(test.gx, test.gy);
+
+  std::array<unsigned char, BOARD_CELLS * BOARD_CELLS> seen{};
+  std::vector<int> agents;
+  std::vector<int> buckets;
+  std::vector<int> steps;
+  agents.reserve(BOARD_CELLS * BOARD_CELLS);
+  buckets.reserve(BOARD_CELLS * BOARD_CELLS);
+  steps.reserve(BOARD_CELLS * BOARD_CELLS);
+
+  auto push_state = [&](int agent, int bucket, int step) {
+    const int key = agent * BOARD_CELLS + bucket;
+    if (seen[key])
+      return;
+    seen[key] = 1;
+    agents.push_back(agent);
+    buckets.push_back(bucket);
+    steps.push_back(step);
+  };
+
+  push_state(start_agent, start_bucket, 0);
+
+  static constexpr int dx[4] = {-1, 0, 1, 0};
+  static constexpr int dy[4] = {0, 1, 0, -1};
+
+  for (std::size_t head = 0; head < agents.size(); ++head) {
+    const int agent = agents[head];
+    const int bucket = buckets[head];
+    const int step = steps[head];
+    if (step >= STEP_LIMIT)
+      continue;
+
+    int ax, ay;
+    cellCoords(agent, ax, ay);
+    for (int move = 0; move < 4; ++move) {
+      const int tox = ax + dx[move];
+      const int toy = ay + dy[move];
+      if (!inBounds(tox, toy))
+        continue;
+
+      const int target = cellIndex(tox, toy);
+      int next_agent = target;
+      int next_bucket = bucket;
+
+      if (target == bucket) {
+        const int bx = tox + dx[move];
+        const int by = toy + dy[move];
+        if (!inBounds(bx, by))
+          continue;
+
+        const int push_to = cellIndex(bx, by);
+        if (push_to == home)
+          return step + 1;
+        if (push_to == agent || push_to == bucket)
+          continue;
+
+        next_bucket = push_to;
+      } else {
+        const int px = ax - dx[move];
+        const int py = ay - dy[move];
+        if (inBounds(px, py) && cellIndex(px, py) == bucket) {
+          if (agent == home)
+            return step + 1;
+          next_bucket = agent;
+        }
+      }
+
+      push_state(next_agent, next_bucket, step + 1);
+    }
+  }
+
+  return UNSOLVED_STEP + manhattan(test.ax, test.ay, test.gx, test.gy) +
+         manhattan(test.Ox, test.Oy, test.gx, test.gy);
+}
+
+int noStoneSolutionSteps(const TestCase &test) {
+  if (!validTest(test))
+    return UNSOLVED_STEP;
+
+  static std::array<int, NO_STONE_CASES> cache;
+  static std::once_flag init_flag;
+  static std::mutex cache_mutex;
+  std::call_once(init_flag, [] { cache.fill(-1); });
+
+  const int index = noStoneCaseIndex(test);
+  {
+    std::lock_guard<std::mutex> lock(cache_mutex);
+    if (cache[index] >= 0)
+      return cache[index];
+  }
+
+  const int solved = solveNoStoneStepsUncached(test);
+  std::lock_guard<std::mutex> lock(cache_mutex);
+  if (cache[index] < 0)
+    cache[index] = solved;
+  return cache[index];
+}
+
+int difficultyStage(const TestCase &test) {
+  if (test.rn > 0)
+    return UNSOLVED_STEP + test.rn;
+  return noStoneSolutionSteps(test);
+}
+
+int curriculumDistance(const TestCase &test) {
+  return manhattan(test.ax, test.ay, test.gx, test.gy) +
+         manhattan(test.Ox, test.Oy, test.gx, test.gy);
+}
+
+bool sameDifficulty(const TestCase &a, const TestCase &b) {
+  return a.rn == b.rn && difficultyStage(a) == difficultyStage(b);
+}
+
+int interleaveBucket(const TestCase &test) {
+  return (edgeRank(test) * CATEGORY_COUNT + categoryIndex(test)) * 9 +
+         directionBucket(test);
 }
 
 } 
@@ -140,10 +295,20 @@ const char *categoryName(int index) {
 }
 
 bool curriculumLess(const TestCase &a, const TestCase &b) {
+  int stage_a = difficultyStage(a);
+  int stage_b = difficultyStage(b);
+  if (stage_a != stage_b)
+    return stage_a < stage_b;
+
   int category_a = categoryIndex(a);
   int category_b = categoryIndex(b);
   if (category_a != category_b)
     return category_a < category_b;
+
+  int total_a = curriculumDistance(a);
+  int total_b = curriculumDistance(b);
+  if (total_a != total_b)
+    return total_a < total_b;
 
   int dist_a = manhattan(a.Ox, a.Oy, a.gx, a.gy);
   int dist_b = manhattan(b.Ox, b.Oy, b.gx, b.gy);
@@ -163,6 +328,55 @@ bool curriculumLess(const TestCase &a, const TestCase &b) {
   return a.source_index < b.source_index;
 }
 
+void orderCurriculum(std::vector<TestCase> &tests) {
+  for (const auto &test : tests)
+    (void)difficultyStage(test);
+
+  std::stable_sort(tests.begin(), tests.end(), curriculumLess);
+
+  static constexpr std::array<int, 9> direction_order = {0, 8, 2, 6, 1,
+                                                        7, 3, 5, 4};
+  constexpr int EDGE_RANK_COUNT = 16;
+  constexpr int BUCKET_COUNT = EDGE_RANK_COUNT * CATEGORY_COUNT * 9;
+
+  std::vector<TestCase> ordered;
+  ordered.reserve(tests.size());
+
+  for (std::size_t begin = 0; begin < tests.size();) {
+    std::size_t end = begin + 1;
+    while (end < tests.size() && sameDifficulty(tests[begin], tests[end]))
+      ++end;
+
+    std::array<std::vector<TestCase>, BUCKET_COUNT> buckets;
+    for (std::size_t i = begin; i < end; ++i)
+      buckets[interleaveBucket(tests[i])].push_back(tests[i]);
+
+    std::array<std::size_t, BUCKET_COUNT> cursor{};
+    std::size_t remaining = end - begin;
+    while (remaining > 0) {
+      for (int edge = 0; edge < EDGE_RANK_COUNT && remaining > 0; ++edge) {
+        for (int category = 0; category < CATEGORY_COUNT && remaining > 0;
+             ++category) {
+          for (int direction : direction_order) {
+            if (remaining == 0)
+              break;
+            const int bucket = (edge * CATEGORY_COUNT + category) * 9 +
+                               direction;
+            if (cursor[bucket] >= buckets[bucket].size())
+              continue;
+            ordered.push_back(buckets[bucket][cursor[bucket]++]);
+            --remaining;
+          }
+        }
+      }
+    }
+
+    begin = end;
+  }
+
+  tests.swap(ordered);
+}
+
 std::array<int, CATEGORY_COUNT>
 categoryCounts(const std::vector<TestCase> &tests) {
   std::array<int, CATEGORY_COUNT> counts{};
@@ -175,69 +389,16 @@ std::vector<TestCase> generateBaseTests() {
   std::vector<TestCase> tests;
   tests.reserve(4032);
 
-  for (int ax = 1; ax < 7; ++ax) {
-    for (int ay = 1; ay < 7; ++ay) {
-      for (int gy = 1; gy < 7; ++gy) {
-        if (gy != ay)
-          addTest(tests, ax, ay, ax, ay, ax, gy, 0);
-      }
-      for (int gx = 1; gx < 7; ++gx) {
-        if (gx != ax)
-          addTest(tests, ax, ay, ax, ay, gx, ay, 0);
-      }
-    }
-  }
-
-  for (int ax = 1; ax < 7; ++ax) {
-    for (int ay = 1; ay < 7; ++ay) {
-      for (int gx = 1; gx < 7; ++gx) {
-        if (gx == ax)
-          continue;
-        for (int gy = 1; gy < 7; ++gy) {
-          if (gy != ay)
-            addTest(tests, ax, ay, ax, ay, gx, gy, 0);
-        }
-      }
-    }
-  }
-
-  for (int ax : {0, 7}) {
-    for (int ay = 0; ay < 8; ++ay) {
-      for (int gx = 0; gx < 8; ++gx) {
-        for (int gy = 0; gy < 8; ++gy)
+  for (int ax = 0; ax < BOARD_SIZE; ++ax) {
+    for (int ay = 0; ay < BOARD_SIZE; ++ay) {
+      for (int gx = 0; gx < BOARD_SIZE; ++gx) {
+        for (int gy = 0; gy < BOARD_SIZE; ++gy)
           addTest(tests, ax, ay, ax, ay, gx, gy, 0);
       }
     }
   }
 
-  for (int ay : {0, 7}) {
-    for (int ax = 1; ax < 7; ++ax) {
-      for (int gx = 0; gx < 8; ++gx) {
-        for (int gy = 0; gy < 8; ++gy)
-          addTest(tests, ax, ay, ax, ay, gx, gy, 0);
-      }
-    }
-  }
-
-  for (int gx : {0, 7}) {
-    for (int gy = 0; gy < 8; ++gy) {
-      for (int ax = 1; ax < 7; ++ax) {
-        for (int ay = 1; ay < 7; ++ay)
-          addTest(tests, ax, ay, ax, ay, gx, gy, 0);
-      }
-    }
-  }
-
-  for (int gy : {0, 7}) {
-    for (int gx = 1; gx < 7; ++gx) {
-      for (int ax = 1; ax < 7; ++ax) {
-        for (int ay = 1; ay < 7; ++ay)
-          addTest(tests, ax, ay, ax, ay, gx, gy, 0);
-      }
-    }
-  }
-
-  std::stable_sort(tests.begin(), tests.end(), curriculumLess);
+  orderCurriculum(tests);
   for (int i = 0; i < (int)tests.size(); ++i)
     tests[i].source_index = i;
   return tests;
@@ -261,6 +422,12 @@ bool readTests(std::istream &in, std::vector<TestCase> &tests,
           test.gy >> test.rn)) {
       if (error)
         *error = "bad row " + std::to_string(line_number);
+      return false;
+    }
+    std::string extra;
+    if (row >> extra) {
+      if (error)
+        *error = "too many columns at row " + std::to_string(line_number);
       return false;
     }
     if (!validTest(test)) {

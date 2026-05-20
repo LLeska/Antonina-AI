@@ -160,7 +160,7 @@ void NeuroEvolution::evolution() {
     std::cout << "MAJOR RESET after " << generations_without_improvement
               << " gens! Best was: " << best_fitness_ever << std::endl;
 
-    int survivors = population / 10;
+    int survivors = std::clamp(population / 10, 1, population);
     std::unique_ptr<Perceptron[]> saved(new Perceptron[survivors]);
     for (int i = 0; i < survivors; ++i)
       saved[i] = neuros[i];
@@ -180,8 +180,9 @@ void NeuroEvolution::evolution() {
     return;
   }
 
-  int elite_count = std::max(8, population / 50);
-  int immigrants = std::max(20, population / 25);
+  int elite_count = std::clamp(std::max(8, population / 50), 1, population);
+  int immigrants =
+      std::clamp(std::max(20, population / 25), 0, population - elite_count);
 
   int use_parents = std::min(parents_size, population);
   std::unique_ptr<Perceptron[]> best(new Perceptron[use_parents]);
@@ -364,6 +365,13 @@ bool NeuroEvolution::allEqual() {
 }
 
 Perceptron *NeuroEvolution::demonstrate() { return &neuros[0]; }
+
+void NeuroEvolution::configureMutation(double epsilon, double mutation_prob) {
+  if (epsilon > 0.0)
+    current_epsilon = epsilon;
+  if (mutation_prob >= 0.0)
+    current_mutation_prob = mutation_prob;
+}
 
 void NeuroEvolution::resetBestFitness(double new_epsilon,
                                       double new_mutation_prob) {

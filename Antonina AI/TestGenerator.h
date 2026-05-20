@@ -24,6 +24,7 @@ int manhattan(int ax, int ay, int bx, int by);
 int categoryIndex(const TestCase &test);
 const char *categoryName(int index);
 bool curriculumLess(const TestCase &a, const TestCase &b);
+void orderCurriculum(std::vector<TestCase> &tests);
 std::array<int, CATEGORY_COUNT> categoryCounts(const std::vector<TestCase> &tests);
 std::vector<TestCase> generateBaseTests();
 bool readTests(std::istream &in, std::vector<TestCase> &tests,

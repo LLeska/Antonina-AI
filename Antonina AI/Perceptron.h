@@ -31,6 +31,7 @@ public:
                         int B) const;
 
   int getOut() override;
+  double outputValue(int index) const override;
   std::unique_ptr<Brain> cloneBrain() const override;
 
   void getOutBatch(const double *batch_outputs, int *out_args, int B) const;
