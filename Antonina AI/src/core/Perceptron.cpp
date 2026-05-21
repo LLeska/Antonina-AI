@@ -160,8 +160,7 @@ void Perceptron::feedForward(double *inputs) {
   }
 }
 
-void Perceptron::feedForwardBatch(const double *batch_inputs,
-                                  double *batch_outputs, int B) const {
+void Perceptron::feedForwardBatch(const double *batch_inputs, double *batch_outputs, int B) const {
   if (B <= 0 || layers == nullptr || length <= 0)
     return;
 
@@ -244,8 +243,7 @@ std::unique_ptr<Brain> Perceptron::cloneBrain() const {
   return std::make_unique<Perceptron>(*this);
 }
 
-void Perceptron::getOutBatch(const double *batch_outputs, int *out_args,
-                             int B) const {
+void Perceptron::getOutBatch(const double *batch_outputs, int *out_args, int B) const {
   const int out_sz = layers[length - 1].size;
   for (int b = 0; b < B; b++) {
     const double *o = batch_outputs + (size_t)b * out_sz;
@@ -299,6 +297,31 @@ void Perceptron::mutate(double sigma, double prob) {
 
 bool Perceptron::isInitialized() { return layers != nullptr; }
 
+int Perceptron::layerSize(int index) const {
+  if (!layers || index < 0 || index >= length)
+    return 0;
+  return layers[index].size;
+}
+
+double Perceptron::neuronValue(int layer, int index) const {
+  if (!layers || layer < 0 || layer >= length)
+    return 0.0;
+  const Layer &l = layers[layer];
+  if (!l.neurons || index < 0 || index >= l.size)
+    return 0.0;
+  return l.neurons[index];
+}
+
+double Perceptron::connectionWeight(int from_layer, int from, int to) const {
+  if (!layers || from_layer < 0 || from_layer + 1 >= length)
+    return 0.0;
+  const Layer &layer = layers[from_layer];
+  if (!layer.weights || from < 0 || from >= layer.size || to < 0 ||
+      to >= layer.nextSize)
+    return 0.0;
+  return layer.weights[to * layer.size + from];
+}
+
 void Perceptron::readFromFile(std::ifstream *fin) {
   if (!fin->is_open() || fin->fail()) {
     std::cerr << "Stream error before reading Perceptron" << std::endl;
@@ -306,7 +329,7 @@ void Perceptron::readFromFile(std::ifstream *fin) {
   }
   deInit();
   *fin >> learningRate >> length;
-  if (fin->fail() || length <= 0 || length > 100) {
+  if (fin->fail() || length <= 0 || length > 10000) {
     std::cerr << "Invalid length=" << length << std::endl;
     length = 0;
     return;
@@ -335,15 +358,4 @@ void Perceptron::readFromFile(std::string file) {
 void Perceptron::writeInFile(std::string file) {
   std::ofstream fout(file);
   writeInFile(&fout);
-}
-
-template <typename T> T Perceptron::random_in_range(T a, T b) {
-  static thread_local std::mt19937 gen(std::random_device{}());
-  if constexpr (std::is_integral_v<T>) {
-    std::uniform_int_distribution<T> dist(a, b);
-    return dist(gen);
-  } else {
-    std::uniform_real_distribution<T> dist(a, b);
-    return dist(gen);
-  }
 }

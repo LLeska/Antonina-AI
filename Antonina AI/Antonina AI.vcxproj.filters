@@ -1,81 +1,63 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <Filter Include="Исходные файлы">
+    <Filter Include="Source Files">
       <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
       <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
     </Filter>
-    <Filter Include="Файлы заголовков">
+    <Filter Include="Header Files">
       <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
       <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
     </Filter>
-    <Filter Include="Файлы ресурсов">
+    <Filter Include="Resource Files">
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="main.cpp">
-      <Filter>Исходные файлы</Filter>
-    </ClCompile>
-    <ClCompile Include="Perceptron.cpp">
-      <Filter>Исходные файлы</Filter>
-    </ClCompile>
-    <ClCompile Include="Layer.cpp">
-      <Filter>Исходные файлы</Filter>
-    </ClCompile>
-    <ClCompile Include="NeuroEvolution.cpp">
-      <Filter>Исходные файлы</Filter>
-    </ClCompile>
-    <ClCompile Include="NeatEvolution.cpp">
-      <Filter>Исходные файлы</Filter>
-    </ClCompile>
-    <ClCompile Include="AntoninaAPI.cpp">
-      <Filter>Исходные файлы</Filter>
-    </ClCompile>
-    <ClCompile Include="Viewer.cpp">
-      <Filter>Исходные файлы</Filter>
-    </ClCompile>
-    <ClCompile Include="TestGenerator.cpp">
-      <Filter>Исходные файлы</Filter>
-    </ClCompile>
-    <ClCompile Include="test_equiv.cpp">
-      <Filter>Исходные файлы</Filter>
-    </ClCompile>
+    <ClCompile Include="src\app\main.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\core\Layer.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\core\NeatGenome.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\core\NeatInnovation.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\core\Perceptron.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\game\AntoninaAPI.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\game\TestGenerator.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\gui\ScopedViewerLogRedirect.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\gui\Viewer.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\gui\ViewerLogStreamBuf.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\training\NeatEvolution.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\training\NeuroEvolution.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\training\TestWeightTable.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\training\ThreadPool.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\training\TrainingSettings.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\training\TrainingSettingsJson.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\training\TrainingUtils.cpp"><Filter>Source Files</Filter></ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Perceptron.h">
-      <Filter>Файлы заголовков</Filter>
-    </ClInclude>
-    <ClInclude Include="Layer.h">
-      <Filter>Файлы заголовков</Filter>
-    </ClInclude>
-    <ClInclude Include="NeuroEvolution.h">
-      <Filter>Файлы заголовков</Filter>
-    </ClInclude>
-    <ClInclude Include="Brain.h">
-      <Filter>Файлы заголовков</Filter>
-    </ClInclude>
-    <ClInclude Include="NeatEvolution.h">
-      <Filter>Файлы заголовков</Filter>
-    </ClInclude>
-    <ClInclude Include="AntoninaAPI.h">
-      <Filter>Файлы заголовков</Filter>
-    </ClInclude>
-    <ClInclude Include="LiveStats.h">
-      <Filter>Файлы заголовков</Filter>
-    </ClInclude>
-    <ClInclude Include="Viewer.h">
-      <Filter>Файлы заголовков</Filter>
-    </ClInclude>
-    <ClInclude Include="TestGenerator.h">
-      <Filter>Файлы заголовков</Filter>
-    </ClInclude>
+    <ClInclude Include="src\core\Brain.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\core\Layer.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\core\NeatGenome.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\core\NeatInnovation.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\core\Perceptron.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\game\AntoninaAPI.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\game\TestGenerator.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\gui\LiveStats.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\gui\ScopedViewerLogRedirect.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\gui\Viewer.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\gui\ViewerLogStreamBuf.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\training\AITrainingAlgorithm.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\training\FullMasteryOptimizer.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\training\NeatEvolution.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\training\NeuroEvolution.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\training\TestWeightTable.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\training\ThreadPool.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\training\TrainingAlgorithmFactory.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\training\TrainingSettings.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\training\TrainingSettingsJson.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\training\TrainingUtils.h"><Filter>Header Files</Filter></ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="AND.csv" />
-    <None Include="AND1.csv" />
     <None Include="CMakeLists.txt" />
-    <None Include="Test0.csv" />
+    <None Include="test.csv" />
   </ItemGroup>
 </Project>

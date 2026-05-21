@@ -3,7 +3,9 @@
 #include "Layer.h"
 #include <fstream>
 #include <memory>
+#include <random>
 #include <string>
+#include <type_traits>
 
 class Perceptron : public Brain {
 private:
@@ -13,7 +15,16 @@ private:
   double EPSILON;
   double NOT_MUTAHION;
 
-  template <typename T> T random_in_range(T a, T b);
+  template <typename T> T random_in_range(T a, T b) {
+    static thread_local std::mt19937 gen(std::random_device{}());
+    if constexpr (std::is_integral_v<T>) {
+      std::uniform_int_distribution<T> dist(a, b);
+      return dist(gen);
+    } else {
+      std::uniform_real_distribution<T> dist(a, b);
+      return dist(gen);
+    }
+  }
 
 public:
   Perceptron();
@@ -27,8 +38,7 @@ public:
 
   void feedForward(double *inputs) override;
 
-  void feedForwardBatch(const double *batch_inputs, double *batch_outputs,
-                        int B) const;
+  void feedForwardBatch(const double *batch_inputs, double *batch_outputs, int B) const;
 
   int getOut() override;
   double outputValue(int index) const override;
@@ -42,6 +52,10 @@ public:
 
   int getInputSize() const { return layers ? layers[0].size : 0; }
   int getOutputSize() const { return layers ? layers[length - 1].size : 0; }
+  int layerCount() const { return layers ? length : 0; }
+  int layerSize(int index) const;
+  double neuronValue(int layer, int index) const;
+  double connectionWeight(int from_layer, int from, int to) const;
 
   void readFromFile(std::ifstream *fin);
   void writeInFile(std::ofstream *fout);

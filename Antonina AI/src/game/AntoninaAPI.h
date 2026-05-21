@@ -1,13 +1,16 @@
 #pragma once
-#include "Brain.h"
-#include "Perceptron.h"
 #include <array>
-#include <cstdint>
 #include <fstream>
 #include <string>
 #include <vector>
 
 class NeatGenome;
+class Perceptron;
+class Brain;
+class AntoninaAPI;
+
+template <typename BatchBrain>
+int solveFitnessBatchImpl(AntoninaAPI &api, BatchBrain *p, int tests_to_run, int *case_scores = nullptr);
 
 class AntoninaAPI {
 public:
@@ -66,7 +69,6 @@ private:
   const int TIME_TO_SLEEP = 0;
   const bool PRINT_STEPS = true;
   const int STEPS_LIMIT = 40;
-  const int N_TESTS = 20;
   int axarr[ALL_TESTS];
   int ayarr[ALL_TESTS];
   int Oxarr[ALL_TESTS];
@@ -78,7 +80,7 @@ private:
   int prebuilt_initial_r2b[ALL_TESTS];
   int prebuilt_initial_b2p[ALL_TESTS];
   int prebuilt_initial_control[ALL_TESTS];
-  uint64_t prebuilt_stone_masks[ALL_TESTS];
+  bool prebuilt_stone_cells[ALL_TESTS][8][8];
 
   struct GameState {
     char lab[8][8];
@@ -112,7 +114,7 @@ private:
     int initial_solution;
     int min_solution;
     int stones;
-    uint64_t stone_mask;
+    bool stone_cells[8][8];
     bool bucket_picked;
     int shaping_score;
     int invalid_moves;
@@ -122,12 +124,9 @@ private:
 
   void ClearLab(char lab[][8]);
   void PrintLab(char lab[][8]);
-  bool MakeLab(char lab[][8], int ax, int ay, int Ox, int Oy, int gx, int gy,
-               int rn, int rx[], int ry[]);
-  void CopyLab(char lab[][8], char copy[][8], int *ax, int *ay, int *Ox,
-               int *Oy, int *gx, int *gy);
-  bool MakeLab(char lab[][8], int ax, int ay, int Ox, int Oy, int gx, int gy,
-               int rn);
+  bool MakeLab(char lab[][8], int ax, int ay, int Ox, int Oy, int gx, int gy, int rn, int rx[], int ry[]);
+  void CopyLab(char lab[][8], char copy[][8], int *ax, int *ay, int *Ox, int *Oy, int *gx, int *gy);
+  bool MakeLab(char lab[][8], int ax, int ay, int Ox, int Oy, int gx, int gy, int rn);
   static char outputToMove(int out);
   void initGameState(GameState &s, int test_index);
   void initFastGameState(FastGameState &s, int test_index) const;
@@ -138,8 +137,7 @@ private:
   int stepFastGameState(FastGameState &s, char c, int step) const;
   int stepFastGameStateMove(FastGameState &s, int move, int step) const;
   void validFastMoves(const FastGameState &s, bool *valid_moves) const;
-  int selectValidMove(const FastGameState &s, const double *outputs,
-                      int fallback) const;
+  int selectValidMove(const FastGameState &s, const double *outputs, int fallback) const;
   void encodeLabInto(const char lab[][8], double *dst);
   void encodeStateInto(const GameState &s, double *dst) const;
   void encodeFastStateInto(const FastGameState &s, double *dst) const;
@@ -147,8 +145,7 @@ private:
   int scoreOfState(const GameState &s);
   int scoreOfFastState(const FastGameState &s) const;
   template <typename BatchBrain>
-  int solveFitnessBatchImpl(BatchBrain *p, int tests_to_run,
-                            int *case_scores = nullptr);
+  friend int solveFitnessBatchImpl(AntoninaAPI &api, BatchBrain *p, int tests_to_run, int *case_scores);
 
   friend class AntoninaAPITestAccess;
 
@@ -157,9 +154,7 @@ public:
   bool reloadTests(std::string *error = nullptr, std::string *loaded_path = nullptr);
   char Move(char map[][8], Brain *p);
   void demonstrate(Brain *p);
-  int GoTestImproved(char lab[][8], int &min_rover_to_bucket,
-                     int &min_bucket_to_pad, bool &bucket_picked, bool doprint,
-                     Brain *p, int &shaping_score);
+  int GoTestImproved(char lab[][8], int &min_rover_to_bucket, int &min_bucket_to_pad, bool &bucket_picked, bool doprint, Brain *p, int &shaping_score);
 
   int solveFitness(Brain *p, int tests_to_run);
 
@@ -174,8 +169,7 @@ public:
 
   int animStep(char lab[][8], Brain *p, int step);
   int countWins(Brain *p, int tests_to_run);
-  int collectFailures(Brain *p, int tests_to_run, std::vector<int> &failures,
-                      int max_failures);
+  int collectFailures(Brain *p, int tests_to_run, std::vector<int> &failures, int max_failures);
   int testResult(Brain *p, int test_index, int *score = nullptr);
   int traceTest(Brain *p, int test_index, TestTrace &trace);
 };

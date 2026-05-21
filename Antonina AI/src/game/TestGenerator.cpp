@@ -8,23 +8,18 @@
 #include <mutex>
 #include <sstream>
 
-namespace TestGenerator {
-namespace {
-
-enum Category {
-  STRAIGHT_TOUCH = 0,
-  STRAIGHT_DETOUR = 1,
-  OPEN_TURN = 2,
-  HOME_EDGE = 3,
-  HOME_CORNER = 4,
-  BUCKET_EDGE_HOME_INNER = 5,
-  BUCKET_EDGE_HOME_EDGE = 6,
-  BUCKET_EDGE_HOME_CORNER = 7,
-  BUCKET_CORNER_HOME_INNER = 8,
-  BUCKET_CORNER_HOME_EDGE = 9,
-  BUCKET_CORNER_HOME_CORNER = 10,
-  STONES = 11
-};
+constexpr int STRAIGHT_TOUCH = 0;
+constexpr int STRAIGHT_DETOUR = 1;
+constexpr int OPEN_TURN = 2;
+constexpr int HOME_EDGE = 3;
+constexpr int HOME_CORNER = 4;
+constexpr int BUCKET_EDGE_HOME_INNER = 5;
+constexpr int BUCKET_EDGE_HOME_EDGE = 6;
+constexpr int BUCKET_EDGE_HOME_CORNER = 7;
+constexpr int BUCKET_CORNER_HOME_INNER = 8;
+constexpr int BUCKET_CORNER_HOME_EDGE = 9;
+constexpr int BUCKET_CORNER_HOME_CORNER = 10;
+constexpr int STONES = 11;
 
 constexpr int BOARD_SIZE = 8;
 constexpr int BOARD_CELLS = BOARD_SIZE * BOARD_SIZE;
@@ -32,30 +27,30 @@ constexpr int NO_STONE_CASES = BOARD_CELLS * BOARD_CELLS * BOARD_CELLS;
 constexpr int STEP_LIMIT = 40;
 constexpr int UNSOLVED_STEP = 1000;
 
-bool inBounds(int x, int y) { return x >= 0 && x < 8 && y >= 0 && y < 8; }
+static bool inBounds(int x, int y) { return x >= 0 && x < 8 && y >= 0 && y < 8; }
 
-bool sameCell(int ax, int ay, int bx, int by) {
+static bool sameCell(int ax, int ay, int bx, int by) {
   return ax == bx && ay == by;
 }
 
-int cellIndex(int x, int y) { return x * BOARD_SIZE + y; }
+static int cellIndex(int x, int y) { return x * BOARD_SIZE + y; }
 
-void cellCoords(int index, int &x, int &y) {
+static void cellCoords(int index, int &x, int &y) {
   x = index / BOARD_SIZE;
   y = index % BOARD_SIZE;
 }
 
-bool onEdge(int x, int y) { return x == 0 || x == 7 || y == 0 || y == 7; }
+static bool onEdge(int x, int y) { return x == 0 || x == 7 || y == 0 || y == 7; }
 
-bool inCorner(int x, int y) {
+static bool inCorner(int x, int y) {
   return (x == 0 || x == 7) && (y == 0 || y == 7);
 }
 
-bool aligned(const TestCase &test) {
+static bool aligned(const TestCase &test) {
   return test.Ox == test.gx || test.Oy == test.gy;
 }
 
-bool validTest(const TestCase &test) {
+static bool validTest(const TestCase &test) {
   if (!inBounds(test.ax, test.ay) || !inBounds(test.Ox, test.Oy) ||
       !inBounds(test.gx, test.gy) || test.rn < 0)
     return false;
@@ -65,14 +60,13 @@ bool validTest(const TestCase &test) {
   return true;
 }
 
-void addTest(std::vector<TestCase> &tests, int ax, int ay, int Ox, int Oy,
-             int gx, int gy, int rn) {
+static void addTest(std::vector<TestCase> &tests, int ax, int ay, int Ox, int Oy, int gx, int gy, int rn) {
   TestCase test{ax, ay, Ox, Oy, gx, gy, rn, (int)tests.size()};
   if (validTest(test))
     tests.push_back(test);
 }
 
-int edgeRank(const TestCase &test) {
+static int edgeRank(const TestCase &test) {
   int value = 0;
   if (onEdge(test.gx, test.gy))
     value += 1;
@@ -85,22 +79,22 @@ int edgeRank(const TestCase &test) {
   return value;
 }
 
-int sign(int v) { return (v > 0) - (v < 0); }
+static int sign(int v) { return (v > 0) - (v < 0); }
 
-int directionBucket(const TestCase &test) {
+static int directionBucket(const TestCase &test) {
   int dx = sign(test.gx - test.Ox);
   int dy = sign(test.gy - test.Oy);
   return (dx + 1) * 3 + (dy + 1);
 }
 
-int noStoneCaseIndex(const TestCase &test) {
+static int noStoneCaseIndex(const TestCase &test) {
   return (cellIndex(test.ax, test.ay) * BOARD_CELLS +
           cellIndex(test.Ox, test.Oy)) *
              BOARD_CELLS +
          cellIndex(test.gx, test.gy);
 }
 
-int solveNoStoneStepsUncached(const TestCase &test) {
+static int solveNoStoneStepsUncached(const TestCase &test) {
   if (!validTest(test))
     return UNSOLVED_STEP;
 
@@ -181,7 +175,7 @@ int solveNoStoneStepsUncached(const TestCase &test) {
          manhattan(test.Ox, test.Oy, test.gx, test.gy);
 }
 
-int noStoneSolutionSteps(const TestCase &test) {
+static int noStoneSolutionSteps(const TestCase &test) {
   if (!validTest(test))
     return UNSOLVED_STEP;
 
@@ -204,27 +198,25 @@ int noStoneSolutionSteps(const TestCase &test) {
   return cache[index];
 }
 
-int difficultyStage(const TestCase &test) {
+static int difficultyStage(const TestCase &test) {
   if (test.rn > 0)
     return UNSOLVED_STEP + test.rn;
   return noStoneSolutionSteps(test);
 }
 
-int curriculumDistance(const TestCase &test) {
+static int curriculumDistance(const TestCase &test) {
   return manhattan(test.ax, test.ay, test.gx, test.gy) +
          manhattan(test.Ox, test.Oy, test.gx, test.gy);
 }
 
-bool sameDifficulty(const TestCase &a, const TestCase &b) {
+static bool sameDifficulty(const TestCase &a, const TestCase &b) {
   return a.rn == b.rn && difficultyStage(a) == difficultyStage(b);
 }
 
-int interleaveBucket(const TestCase &test) {
+static int interleaveBucket(const TestCase &test) {
   return (edgeRank(test) * CATEGORY_COUNT + categoryIndex(test)) * 9 +
          directionBucket(test);
 }
-
-} 
 
 int manhattan(int ax, int ay, int bx, int by) {
   return std::abs(ax - bx) + std::abs(ay - by);
@@ -404,8 +396,7 @@ std::vector<TestCase> generateBaseTests() {
   return tests;
 }
 
-bool readTests(std::istream &in, std::vector<TestCase> &tests,
-               std::string *error, int max_tests) {
+bool readTests(std::istream &in, std::vector<TestCase> &tests, std::string *error, int max_tests) {
   tests.clear();
   std::string line;
   int line_number = 0;
@@ -440,8 +431,7 @@ bool readTests(std::istream &in, std::vector<TestCase> &tests,
   return true;
 }
 
-bool writeTests(const std::string &file, const std::vector<TestCase> &tests,
-                std::string *error) {
+bool writeTests(const std::string &file, const std::vector<TestCase> &tests, std::string *error) {
   std::ofstream out(file);
   if (!out.is_open()) {
     if (error)
@@ -466,5 +456,3 @@ bool writeTests(const std::string &file, const std::vector<TestCase> &tests,
   }
   return true;
 }
-
-} 

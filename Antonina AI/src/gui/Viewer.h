@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AntoninaAPI.h"
-#include "LiveStats.h"
+class AntoninaAPI;
+class LiveStats;
 
 void viewerThread(LiveStats &stats, AntoninaAPI &anim_api);

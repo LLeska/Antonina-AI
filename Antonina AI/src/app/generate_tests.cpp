@@ -5,12 +5,11 @@
 #include <string>
 
 int main(int argc, char **argv) {
-  std::string output = argc > 1 ? argv[1] : "Test0.csv";
-  std::vector<TestGenerator::TestCase> tests =
-      TestGenerator::generateBaseTests();
+  std::string output = argc > 1 ? argv[1] : "test.csv";
+  std::vector<TestCase> tests = generateBaseTests();
 
   std::string error;
-  if (!TestGenerator::writeTests(output, tests, &error)) {
+  if (!writeTests(output, tests, &error)) {
     std::cerr << error << '\n';
     return 1;
   }
@@ -20,11 +19,11 @@ int main(int argc, char **argv) {
   std::error_code ec;
   std::filesystem::remove(weights, ec);
 
-  auto counts = TestGenerator::categoryCounts(tests);
+  auto counts = categoryCounts(tests);
   std::cout << "wrote " << tests.size() << " tests to " << output << '\n';
   std::cout << "reset " << weights.string() << '\n';
-  for (int i = 0; i < TestGenerator::CATEGORY_COUNT; ++i) {
-    std::cout << TestGenerator::categoryName(i) << '=' << counts[i] << '\n';
+  for (int i = 0; i < CATEGORY_COUNT; ++i) {
+    std::cout << categoryName(i) << '=' << counts[i] << '\n';
   }
   return 0;
 }

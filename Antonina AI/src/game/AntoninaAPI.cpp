@@ -1,5 +1,7 @@
 #include "AntoninaAPI.h"
-#include "NeatEvolution.h"
+#include "Brain.h"
+#include "NeatGenome.h"
+#include "Perceptron.h"
 #include "TestGenerator.h"
 #include <algorithm>
 #include <array>
@@ -22,9 +24,7 @@
 #include <vector>
 
 using std::cout, std::endl, std::this_thread::sleep_for;
-using namespace std::chrono_literals;
 
-namespace {
 constexpr int WIN_FITNESS = 500000;
 constexpr int SUCCESS_STEP_BONUS = 10;
 constexpr int PARTIAL_MAX = 50000;
@@ -49,14 +49,14 @@ struct TestFile {
   std::string path;
 };
 
-TestFile openTestsFile() {
-  const char *candidates[] = {"Test0.csv",
-                              "..\\Test0.csv",
-                              "..\\..\\Test0.csv",
-                              "Antonina AI\\Test0.csv",
-                              "..\\Antonina AI\\Test0.csv",
-                              "..\\..\\Antonina AI\\Test0.csv",
-                              "..\\..\\..\\Antonina AI\\Test0.csv"};
+static TestFile openTestsFile() {
+  const char *candidates[] = {"test.csv",
+                              "..\\test.csv",
+                              "..\\..\\test.csv",
+                              "Antonina AI\\test.csv",
+                              "..\\Antonina AI\\test.csv",
+                              "..\\..\\Antonina AI\\test.csv",
+                              "..\\..\\..\\Antonina AI\\test.csv"};
 
   for (const char *path : candidates) {
     std::ifstream fin(path);
@@ -67,7 +67,7 @@ TestFile openTestsFile() {
   return {};
 }
 
-std::string currentWorkingDirectory() {
+static std::string currentWorkingDirectory() {
   try {
     return std::filesystem::current_path().string();
   } catch (...) {
@@ -75,46 +75,55 @@ std::string currentWorkingDirectory() {
   }
 }
 
-bool inBounds(int x, int y) { return x >= 0 && x < 8 && y >= 0 && y < 8; }
+static bool inBounds(int x, int y) { return x >= 0 && x < 8 && y >= 0 && y < 8; }
 
-bool onBoardEdge(int x, int y) { return x == 0 || x == 7 || y == 0 || y == 7; }
+static bool onBoardEdge(int x, int y) { return x == 0 || x == 7 || y == 0 || y == 7; }
 
-bool inBoardCorner(int x, int y) {
+static bool inBoardCorner(int x, int y) {
   return (x == 0 || x == 7) && (y == 0 || y == 7);
 }
 
-char cellAt(const char lab[][8], int x, int y) {
+static char cellAt(const char lab[][8], int x, int y) {
   return inBounds(x, y) ? lab[x][y] : '\0';
 }
 
-bool isHome(char c) { return c == 'O' || c == '@'; }
+static bool isHome(char c) { return c == 'O' || c == '@'; }
 
-bool isFreeCell(char c) { return c == '.' || c == 'O'; }
+static bool isFreeCell(char c) { return c == '.' || c == 'O'; }
 
-double normCoord(int v) { return ((double)v - 3.5) / 3.5; }
+static double normCoord(int v) { return ((double)v - 3.5) / 3.5; }
 
-double normDelta(int v) { return (double)v / 7.0; }
+static double normDelta(int v) { return (double)v / 7.0; }
 
-double normDist(int v) { return (double)v / 14.0; }
+static double normDist(int v) { return (double)v / 14.0; }
 
-double normWallDist(int v) { return (double)v / 7.0; }
+static double normWallDist(int v) { return (double)v / 7.0; }
 
-int manhattan(int ax, int ay, int bx, int by) {
+static int gridManhattan(int ax, int ay, int bx, int by) {
   return abs(ax - bx) + abs(ay - by);
 }
 
-int directionSign(int v) { return (v > 0) - (v < 0); }
+static int directionSign(int v) { return (v > 0) - (v < 0); }
 
-uint64_t cellBit(int x, int y) { return 1ull << (x * 8 + y); }
+static void clearStoneCells(bool cells[][8]) {
+  for (int x = 0; x < 8; ++x)
+    for (int y = 0; y < 8; ++y)
+      cells[x][y] = false;
+}
+
+static void copyStoneCells(bool dst[][8], const bool src[][8]) {
+  for (int x = 0; x < 8; ++x)
+    for (int y = 0; y < 8; ++y)
+      dst[x][y] = src[x][y];
+}
 
 template <typename CellAtFn>
-int controlDistanceWithCell(CellAtFn cell, int ax, int ay, int gx, int gy,
-                            int Ox, int Oy) {
+static int controlDistanceWithCell(CellAtFn cell, int ax, int ay, int gx, int gy, int Ox, int Oy) {
   int best = 99;
   auto consider = [&](int x, int y) {
     if (!inBounds(x, y) || cell(x, y) == '#')
       return;
-    best = std::min(best, manhattan(ax, ay, x, y));
+    best = std::min(best, gridManhattan(ax, ay, x, y));
   };
 
   int sx = directionSign(Ox - gx);
@@ -129,18 +138,16 @@ int controlDistanceWithCell(CellAtFn cell, int ax, int ay, int gx, int gy,
   }
 
   if (best == 99)
-    best = manhattan(ax, ay, gx, gy);
+    best = gridManhattan(ax, ay, gx, gy);
   return best;
 }
 
-int controlDistance(const char lab[][8], int ax, int ay, int gx, int gy, int Ox,
-                    int Oy) {
+static int controlDistance(const char lab[][8], int ax, int ay, int gx, int gy, int Ox, int Oy) {
   return controlDistanceWithCell(
       [&](int x, int y) { return cellAt(lab, x, y); }, ax, ay, gx, gy, Ox, Oy);
 }
 
-int aggregateFitness(int wins, int failures, long long partial_sum,
-                     long long speed_sum) {
+static int aggregateFitness(int wins, int failures, long long partial_sum, long long speed_sum) {
   int fail_avg = failures > 0 ? (int)(partial_sum / failures) : 0;
   int speed_avg = wins > 0 ? (int)(speed_sum / wins) : 0;
   long long value = (long long)wins * WIN_FITNESS + fail_avg + speed_avg;
@@ -161,8 +168,7 @@ struct FitnessStats {
   }
 };
 
-void scanLab(const char lab[][8], int &ax, int &ay, int &Ox, int &Oy, int &gx,
-             int &gy, int &stones) {
+static void scanLab(const char lab[][8], int &ax, int &ay, int &Ox, int &Oy, int &gx, int &gy, int &stones) {
   ax = ay = Ox = Oy = gx = gy = 0;
   stones = 0;
   for (int i = 0; i < 8; i++) {
@@ -197,8 +203,7 @@ void scanLab(const char lab[][8], int &ax, int &ay, int &Ox, int &Oy, int &gx,
 }
 
 template <typename CellAtFn>
-void writeFeaturesWithCell(CellAtFn cell, int ax, int ay, int Ox, int Oy,
-                           int gx, int gy, int stones, double *dst) {
+static void writeFeaturesWithCell(CellAtFn cell, int ax, int ay, int Ox, int Oy, int gx, int gy, int stones, double *dst) {
   int k = 0;
   auto push = [&](double v) {
     if (k < AntoninaAPI::INPUT_FEATURES)
@@ -217,20 +222,20 @@ void writeFeaturesWithCell(CellAtFn cell, int ax, int ay, int Ox, int Oy,
   push(normDelta(Oy - gy));
   push(normDelta(Ox - ax));
   push(normDelta(Oy - ay));
-  push(normDist(manhattan(ax, ay, gx, gy)));
-  push(normDist(manhattan(Ox, Oy, gx, gy)));
-  push(normDist(manhattan(Ox, Oy, ax, ay)));
+  push(normDist(gridManhattan(ax, ay, gx, gy)));
+  push(normDist(gridManhattan(Ox, Oy, gx, gy)));
+  push(normDist(gridManhattan(Ox, Oy, ax, ay)));
   push(cell(ax, ay) == '@' ? 1.0 : 0.0);
-  push(manhattan(ax, ay, gx, gy) == 1 ? 1.0 : 0.0);
+  push(gridManhattan(ax, ay, gx, gy) == 1 ? 1.0 : 0.0);
   push((Ox == gx || Oy == gy) ? 1.0 : 0.0);
   push((ax == gx || ay == gy) ? 1.0 : 0.0);
   push((double)stones / 64.0);
 
   const int dx[4] = {-1, 0, 1, 0};
   const int dy[4] = {0, 1, 0, -1};
-  const int base_r2b = manhattan(ax, ay, gx, gy);
-  const int base_b2p = manhattan(Ox, Oy, gx, gy);
-  const int base_r2p = manhattan(ax, ay, Ox, Oy);
+  const int base_r2b = gridManhattan(ax, ay, gx, gy);
+  const int base_b2p = gridManhattan(Ox, Oy, gx, gy);
+  const int base_r2p = gridManhattan(ax, ay, Ox, Oy);
   const int base_control =
       controlDistanceWithCell(cell, ax, ay, gx, gy, Ox, Oy);
   const int b2p_dx = Ox - gx;
@@ -307,16 +312,16 @@ void writeFeaturesWithCell(CellAtFn cell, int ax, int ay, int Ox, int Oy,
     }
 
     double delta_r2b =
-        valid_move ? (double)(base_r2b - manhattan(next_ax, next_ay, next_gx,
-                                                   next_gy)) /
+        valid_move ? (double)(base_r2b - gridManhattan(next_ax, next_ay, next_gx,
+                                                       next_gy)) /
                          14.0
                    : -1.0;
     double delta_b2p =
-        valid_move ? (double)(base_b2p - manhattan(Ox, Oy, next_gx, next_gy)) /
+        valid_move ? (double)(base_b2p - gridManhattan(Ox, Oy, next_gx, next_gy)) /
                          14.0
                    : -1.0;
     double delta_r2p =
-        valid_move ? (double)(base_r2p - manhattan(next_ax, next_ay, Ox, Oy)) /
+        valid_move ? (double)(base_r2p - gridManhattan(next_ax, next_ay, Ox, Oy)) /
                          14.0
                    : -1.0;
     int next_control =
@@ -326,9 +331,9 @@ void writeFeaturesWithCell(CellAtFn cell, int ax, int ay, int Ox, int Oy,
     double delta_control =
         valid_move ? (double)(base_control - next_control) / 14.0 : -1.0;
     int push_next_b2p =
-        push_target_in_bounds ? manhattan(Ox, Oy, gx + dx[d], gy + dy[d]) : 99;
+        push_target_in_bounds ? gridManhattan(Ox, Oy, gx + dx[d], gy + dy[d]) : 99;
     int control_dist =
-        push_control_in_bounds ? manhattan(ax, ay, gx - dx[d], gy - dy[d]) : 14;
+        push_control_in_bounds ? gridManhattan(ax, ay, gx - dx[d], gy - dy[d]) : 14;
 
     push(ahead_free ? 1.0 : 0.0);
     push(isHome(ahead) ? 1.0 : 0.0);
@@ -394,8 +399,7 @@ void writeFeaturesWithCell(CellAtFn cell, int ax, int ay, int Ox, int Oy,
     dst[k++] = 0.0;
 }
 
-void writeFeatures(const char lab[][8], int ax, int ay, int Ox, int Oy, int gx,
-                   int gy, int stones, double *dst) {
+static void writeFeatures(const char lab[][8], int ax, int ay, int Ox, int Oy, int gx, int gy, int stones, double *dst) {
   writeFeaturesWithCell([&](int x, int y) { return cellAt(lab, x, y); }, ax,
                         ay, Ox, Oy, gx, gy, stones, dst);
 }
@@ -420,15 +424,14 @@ constexpr int BOARD_CELLS = 64;
 constexpr int NO_STONE_STATE_COUNT = BOARD_CELLS * BOARD_CELLS * BOARD_CELLS;
 constexpr int ACTION_COUNT = 4;
 
-int cellIndex(int x, int y) { return x * 8 + y; }
+static int cellIndex(int x, int y) { return x * 8 + y; }
 
-int noStoneStateIndex(int ax, int ay, int Ox, int Oy, int gx, int gy) {
+static int noStoneStateIndex(int ax, int ay, int Ox, int Oy, int gx, int gy) {
   return (cellIndex(ax, ay) * BOARD_CELLS + cellIndex(Ox, Oy)) * BOARD_CELLS +
          cellIndex(gx, gy);
 }
 
-void decodeNoStoneState(int index, int &ax, int &ay, int &Ox, int &Oy, int &gx,
-                        int &gy) {
+static void decodeNoStoneState(int index, int &ax, int &ay, int &Ox, int &Oy, int &gx, int &gy) {
   int bucket = index % BOARD_CELLS;
   index /= BOARD_CELLS;
   int home = index % BOARD_CELLS;
@@ -441,8 +444,7 @@ void decodeNoStoneState(int index, int &ax, int &ay, int &Ox, int &Oy, int &gx,
   gy = bucket % 8;
 }
 
-char noStoneCell(int x, int y, int ax, int ay, int Ox, int Oy, int gx,
-                 int gy) {
+static char noStoneCell(int x, int y, int ax, int ay, int Ox, int Oy, int gx, int gy) {
   if (!inBounds(x, y))
     return '\0';
   if (x == gx && y == gy)
@@ -454,8 +456,7 @@ char noStoneCell(int x, int y, int ax, int ay, int Ox, int Oy, int gx,
   return '.';
 }
 
-CachedTransition buildNoStoneTransition(int ax, int ay, int Ox, int Oy, int gx,
-                                        int gy, int move) {
+static CachedTransition buildNoStoneTransition(int ax, int ay, int Ox, int Oy, int gx, int gy, int move) {
   const int dx[ACTION_COUNT] = {-1, 0, 1, 0};
   const int dy[ACTION_COUNT] = {0, 1, 0, -1};
 
@@ -524,7 +525,7 @@ CachedTransition buildNoStoneTransition(int ax, int ay, int Ox, int Oy, int gx,
   return t;
 }
 
-NoStoneCaches &noStoneCaches() {
+static NoStoneCaches &noStoneCaches() {
   static NoStoneCaches caches;
   static std::once_flag init_flag;
   std::call_once(init_flag, [] {
@@ -658,7 +659,6 @@ NoStoneCaches &noStoneCaches() {
   });
   return caches;
 }
-}
 
 AntoninaAPI::AntoninaAPI() {
   std::string error;
@@ -690,11 +690,11 @@ bool AntoninaAPI::reloadTests(std::string *error, std::string *loaded_path) {
       MakeLab(prebuilt_labs[i], 1, 1, 1, 1, 1, 2, 0);
     }
 
-    prebuilt_stone_masks[i] = 0;
+    clearStoneCells(prebuilt_stone_cells[i]);
     for (int x = 0; x < 8; ++x)
       for (int y = 0; y < 8; ++y)
         if (prebuilt_labs[i][x][y] == '#')
-          prebuilt_stone_masks[i] |= cellBit(x, y);
+          prebuilt_stone_cells[i][x][y] = true;
 
     prebuilt_initial_r2b[i] =
         abs(axarr[i] - gxarr[i]) + abs(ayarr[i] - gyarr[i]);
@@ -716,31 +716,31 @@ bool AntoninaAPI::reloadTests(std::string *error, std::string *loaded_path) {
   std::ifstream fin = std::move(test_file.stream);
   if (!fin.is_open()) {
     if (error)
-      *error = "FATAL: Test0.csv was not found from cwd: " +
+      *error = "FATAL: test.csv was not found from cwd: " +
                currentWorkingDirectory();
     return false;
   }
   if (!reported_test_path.exchange(true)) {
-    std::cerr << "Loaded Test0.csv from: " << test_file.path
+    std::cerr << "Loaded test.csv from: " << test_file.path
               << " | cwd: " << currentWorkingDirectory() << std::endl;
   }
 
-  std::vector<TestGenerator::TestCase> tests;
+  std::vector<TestCase> tests;
   tests.reserve(ALL_TESTS);
   std::string read_error;
-  bool tests_ok = TestGenerator::readTests(fin, tests, &read_error, ALL_TESTS);
+  bool tests_ok = readTests(fin, tests, &read_error, ALL_TESTS);
 
   if (!tests_ok || tests.empty()) {
     if (error) {
-      *error = "Test0.csv is empty or invalid";
+      *error = "test.csv is empty or invalid";
       if (!read_error.empty())
         *error += ": " + read_error;
       *error += "; using fallback test map";
     }
   } else {
-    auto stage_counts = TestGenerator::categoryCounts(tests);
+    auto stage_counts = categoryCounts(tests);
 
-    TestGenerator::orderCurriculum(tests);
+    orderCurriculum(tests);
     for (int i = 0; i < (int)tests.size(); ++i) {
       const auto &test = tests[i];
       install_test(i, test.ax, test.ay, test.Ox, test.Oy, test.gx, test.gy,
@@ -750,8 +750,8 @@ bool AntoninaAPI::reloadTests(std::string *error, std::string *loaded_path) {
     static std::atomic<bool> reported_curriculum{false};
     if (!reported_curriculum.exchange(true)) {
       std::cerr << "Curriculum order:";
-      for (int i = 0; i < TestGenerator::CATEGORY_COUNT; ++i) {
-        std::cerr << ' ' << TestGenerator::categoryName(i) << '='
+      for (int i = 0; i < CATEGORY_COUNT; ++i) {
+        std::cerr << ' ' << categoryName(i) << '='
                   << stage_counts[i];
       }
       std::cerr << std::endl;
@@ -775,8 +775,7 @@ void AntoninaAPI::PrintLab(char lab[][8]) {
   printf("\n");
 }
 
-bool AntoninaAPI::MakeLab(char lab[][8], int ax, int ay, int Ox, int Oy, int gx,
-                          int gy, int rn, int rx[], int ry[]) {
+bool AntoninaAPI::MakeLab(char lab[][8], int ax, int ay, int Ox, int Oy, int gx, int gy, int rn, int rx[], int ry[]) {
   ClearLab(lab);
   if ((gx == ax && gy == ay) || (gx == Ox && gy == Oy))
     return false;
@@ -792,8 +791,7 @@ bool AntoninaAPI::MakeLab(char lab[][8], int ax, int ay, int Ox, int Oy, int gx,
   return true;
 }
 
-bool AntoninaAPI::MakeLab(char lab[][8], int ax, int ay, int Ox, int Oy, int gx,
-                          int gy, int rn) {
+bool AntoninaAPI::MakeLab(char lab[][8], int ax, int ay, int Ox, int Oy, int gx, int gy, int rn) {
   int rx[64] = {0}, ry[64] = {0};
   if (!MakeLab(lab, ax, ay, Ox, Oy, gx, gy, 0, rx, ry)) {
     logfile << "GEN-ERR";
@@ -833,8 +831,7 @@ bool AntoninaAPI::MakeLab(char lab[][8], int ax, int ay, int Ox, int Oy, int gx,
   return true;
 }
 
-void AntoninaAPI::CopyLab(char lab[][8], char copy[][8], int *ax, int *ay,
-                          int *Ox, int *Oy, int *gx, int *gy) {
+void AntoninaAPI::CopyLab(char lab[][8], char copy[][8], int *ax, int *ay, int *Ox, int *Oy, int *gx, int *gy) {
   for (int i = 0; i < 8; i++)
     for (int j = 0; j < 8; j++) {
       copy[i][j] = lab[i][j];
@@ -878,9 +875,8 @@ void AntoninaAPI::encodeStateInto(const GameState &s, double *dst) const {
   writeFeatures(s.lab, s.ax, s.ay, s.Ox, s.Oy, s.gx, s.gy, stones, dst);
 }
 
-void AntoninaAPI::encodeFastStateInto(const FastGameState &s,
-                                      double *dst) const {
-  if (s.stone_mask == 0) {
+void AntoninaAPI::encodeFastStateInto(const FastGameState &s, double *dst) const {
+  if (s.stones == 0) {
     int index = noStoneStateIndex(s.ax, s.ay, s.Ox, s.Oy, s.gx, s.gy);
     const double *src =
         noStoneCaches().features.data() +
@@ -894,7 +890,7 @@ void AntoninaAPI::encodeFastStateInto(const FastGameState &s,
       return '\0';
     if (x == s.gx && y == s.gy)
       return '%';
-    if ((s.stone_mask & cellBit(x, y)) != 0)
+    if (s.stone_cells[x][y])
       return '#';
     if (x == s.ax && y == s.ay)
       return (x == s.Ox && y == s.Oy) ? '@' : 'a';
@@ -924,11 +920,11 @@ char AntoninaAPI::outputToMove(int out) {
 char AntoninaAPI::Move(char map[][8], Brain *p) {
   FastGameState s;
   scanLab(map, s.ax, s.ay, s.Ox, s.Oy, s.gx, s.gy, s.stones);
-  s.stone_mask = 0;
+  clearStoneCells(s.stone_cells);
   for (int x = 0; x < 8; ++x)
     for (int y = 0; y < 8; ++y)
       if (map[x][y] == '#')
-        s.stone_mask |= cellBit(x, y);
+        s.stone_cells[x][y] = true;
 
   std::array<double, INPUT_FEATURES> input{};
   encodeFastStateInto(s, input.data());
@@ -977,8 +973,8 @@ void AntoninaAPI::initFastGameState(FastGameState &s, int test_index) const {
   s.initial_solution = 0;
   s.min_solution = 0;
   s.stones = rnarr[test_index];
-  s.stone_mask = prebuilt_stone_masks[test_index];
-  if (s.stone_mask == 0) {
+  copyStoneCells(s.stone_cells, prebuilt_stone_cells[test_index]);
+  if (s.stones == 0) {
     int index = noStoneStateIndex(s.ax, s.ay, s.Ox, s.Oy, s.gx, s.gy);
     s.initial_solution = noStoneCaches().solution_dist[(size_t)index];
     s.min_solution = s.initial_solution;
@@ -1005,8 +1001,7 @@ int AntoninaAPI::runScalarGame(Brain *p, int test_index, GameState &s) {
   return s.result;
 }
 
-int AntoninaAPI::runFastGame(Brain *p, int test_index,
-                             FastGameState &s) const {
+int AntoninaAPI::runFastGame(Brain *p, int test_index, FastGameState &s) const {
   initFastGameState(s, test_index);
   std::array<double, INPUT_FEATURES> input{};
 
@@ -1028,9 +1023,7 @@ int AntoninaAPI::runFastGame(Brain *p, int test_index,
   return s.result;
 }
 
-int AntoninaAPI::GoTestImproved(char lab[][8], int &min_rover_to_bucket,
-                                int &min_bucket_to_pad, bool &bucket_picked,
-                                bool doprint, Brain *p, int &shaping_score) {
+int AntoninaAPI::GoTestImproved(char lab[][8], int &min_rover_to_bucket, int &min_bucket_to_pad, bool &bucket_picked, bool doprint, Brain *p, int &shaping_score) {
   if (doprint)
     logfile << "#\tNew test... ";
   bucket_picked = false;
@@ -1325,8 +1318,7 @@ int AntoninaAPI::stepGameState(GameState &s, char c, int step) {
   return 0;
 }
 
-int AntoninaAPI::stepFastGameState(FastGameState &s, char c,
-                                   int step) const {
+int AntoninaAPI::stepFastGameState(FastGameState &s, char c, int step) const {
   switch (c) {
   case 'u':
     return stepFastGameStateMove(s, 0, step);
@@ -1342,12 +1334,11 @@ int AntoninaAPI::stepFastGameState(FastGameState &s, char c,
   }
 }
 
-void AntoninaAPI::validFastMoves(const FastGameState &s,
-                                 bool *valid_moves) const {
+void AntoninaAPI::validFastMoves(const FastGameState &s, bool *valid_moves) const {
   for (int move = 0; move < ACTION_COUNT; ++move)
     valid_moves[move] = false;
 
-  if (s.stone_mask == 0) {
+  if (s.stones == 0) {
     int index = noStoneStateIndex(s.ax, s.ay, s.Ox, s.Oy, s.gx, s.gy);
     NoStoneCaches &caches = noStoneCaches();
     for (int move = 0; move < ACTION_COUNT; ++move) {
@@ -1363,7 +1354,7 @@ void AntoninaAPI::validFastMoves(const FastGameState &s,
       return '\0';
     if (x == s.gx && y == s.gy)
       return '%';
-    if ((s.stone_mask & cellBit(x, y)) != 0)
+    if (s.stone_cells[x][y])
       return '#';
     if (x == s.ax && y == s.ay)
       return (x == s.Ox && y == s.Oy) ? '@' : 'a';
@@ -1425,8 +1416,7 @@ void AntoninaAPI::validFastMoves(const FastGameState &s,
   }
 }
 
-int AntoninaAPI::selectValidMove(const FastGameState &s, const double *outputs,
-                                 int fallback) const {
+int AntoninaAPI::selectValidMove(const FastGameState &s, const double *outputs, int fallback) const {
   if (!outputs)
     return std::clamp(fallback, 0, ACTION_COUNT - 1);
 
@@ -1451,8 +1441,7 @@ int AntoninaAPI::selectValidMove(const FastGameState &s, const double *outputs,
   return best_valid >= 0 ? best_valid : std::clamp(fallback, 0, ACTION_COUNT - 1);
 }
 
-int AntoninaAPI::stepFastGameStateMove(FastGameState &s, int move,
-                                       int step) const {
+int AntoninaAPI::stepFastGameStateMove(FastGameState &s, int move, int step) const {
   if (move < 0 || move >= ACTION_COUNT) {
     s.invalid_moves++;
     return 0;
@@ -1472,7 +1461,7 @@ int AntoninaAPI::stepFastGameStateMove(FastGameState &s, int move,
             return '\0';
           if (x == ngx_new && y == ngy_new)
             return '%';
-          if ((s.stone_mask & cellBit(x, y)) != 0)
+          if (s.stone_cells[x][y])
             return '#';
           if (x == nax && y == nay)
             return (x == Ox && y == Oy) ? '@' : 'a';
@@ -1486,7 +1475,7 @@ int AntoninaAPI::stepFastGameStateMove(FastGameState &s, int move,
   const int old_d_agent_box = abs(ax - gx) + abs(ay - gy);
   const int prev_gx = gx, prev_gy = gy;
 
-  if (s.stone_mask == 0) {
+  if (s.stones == 0) {
     int index = noStoneStateIndex(ax, ay, Ox, Oy, gx, gy);
     NoStoneCaches &caches = noStoneCaches();
     s.min_control =
@@ -1573,7 +1562,7 @@ int AntoninaAPI::stepFastGameStateMove(FastGameState &s, int move,
       return '\0';
     if (x == s.gx && y == s.gy)
       return '%';
-    if ((s.stone_mask & cellBit(x, y)) != 0)
+    if (s.stone_cells[x][y])
       return '#';
     if (x == s.ax && y == s.ay)
       return (x == s.Ox && y == s.Oy) ? '@' : 'a';
@@ -1583,8 +1572,8 @@ int AntoninaAPI::stepFastGameStateMove(FastGameState &s, int move,
   };
 
   auto moveStone = [&](int from_x, int from_y, int to_x, int to_y) {
-    s.stone_mask &= ~cellBit(from_x, from_y);
-    s.stone_mask |= cellBit(to_x, to_y);
+    s.stone_cells[from_x][from_y] = false;
+    s.stone_cells[to_x][to_y] = true;
   };
 
   auto applyShaping = [&](int nax, int nay, int nOx, int nOy, int ngx_new,
@@ -1726,7 +1715,7 @@ int AntoninaAPI::scoreOfFastState(const FastGameState &s) const {
       test_score += ALMOST_DONE_BONUS;
   }
 
-  if (s.stone_mask == 0 && s.initial_solution > 0 &&
+  if (s.stones == 0 && s.initial_solution > 0 &&
       s.initial_solution < NO_STONE_UNREACHABLE) {
     int solution_progress =
         std::max(0, s.initial_solution - s.min_solution);
@@ -1785,20 +1774,19 @@ int AntoninaAPI::solveFitness(Brain *p, int tests_to_run) {
 }
 
 template <typename BatchBrain>
-int AntoninaAPI::solveFitnessBatchImpl(BatchBrain *p, int tests_to_run,
-                                       int *case_scores) {
+int solveFitnessBatchImpl(AntoninaAPI &api, BatchBrain *p, int tests_to_run, int *case_scores) {
   int actual_tests =
-      tests_to_run > 0 ? std::min(tests_to_run, ALL_TESTS)
-                       : std::min(active_tests, ALL_TESTS);
+      tests_to_run > 0 ? std::min(tests_to_run, AntoninaAPI::ALL_TESTS)
+                       : std::min(api.active_tests, AntoninaAPI::ALL_TESTS);
   if (actual_tests <= 0)
     return 0;
 
   const int IN_SZ = p->getInputSize();
   const int OUT_SZ = p->getOutputSize();
-  if (IN_SZ != INPUT_FEATURES)
+  if (IN_SZ != AntoninaAPI::INPUT_FEATURES)
     return 0;
 
-  static thread_local std::vector<FastGameState> states;
+  static thread_local std::vector<AntoninaAPI::FastGameState> states;
   static thread_local std::vector<double> batch_in, batch_out;
   static thread_local std::vector<double> scratch_in;
   static thread_local std::vector<const double *> input_rows;
@@ -1823,18 +1811,18 @@ int AntoninaAPI::solveFitnessBatchImpl(BatchBrain *p, int tests_to_run,
 
     for (int i = 0; i < B; i++) {
       int ti = t_start + i;
-      initFastGameState(states[i], ti);
+      api.initFastGameState(states[i], ti);
       active_indices[i] = i;
     }
 
     int active = B;
 
-    for (int step = 1; step <= STEPS_LIMIT && active > 0; step++) {
+    for (int step = 1; step <= api.STEPS_LIMIT && active > 0; step++) {
 
       if constexpr (std::is_same_v<BatchBrain, NeatGenome>) {
         for (int slot = 0; slot < active; slot++) {
           int i = active_indices[slot];
-          if (states[i].stone_mask == 0) {
+          if (states[i].stones == 0) {
             int index = noStoneStateIndex(states[i].ax, states[i].ay,
                                           states[i].Ox, states[i].Oy,
                                           states[i].gx, states[i].gy);
@@ -1843,7 +1831,7 @@ int AntoninaAPI::solveFitnessBatchImpl(BatchBrain *p, int tests_to_run,
                 (size_t)index * AntoninaAPI::INPUT_FEATURES;
           } else {
             double *dst = scratch_in.data() + (size_t)slot * IN_SZ;
-            encodeFastStateInto(states[i], dst);
+            api.encodeFastStateInto(states[i], dst);
             input_rows[slot] = dst;
           }
         }
@@ -1851,7 +1839,7 @@ int AntoninaAPI::solveFitnessBatchImpl(BatchBrain *p, int tests_to_run,
       } else {
         for (int slot = 0; slot < active; slot++) {
           int i = active_indices[slot];
-          encodeFastStateInto(states[i],
+          api.encodeFastStateInto(states[i],
                               batch_in.data() + (size_t)slot * IN_SZ);
         }
         p->feedForwardBatch(batch_in.data(), batch_out.data(), active);
@@ -1860,8 +1848,8 @@ int AntoninaAPI::solveFitnessBatchImpl(BatchBrain *p, int tests_to_run,
       for (int slot = 0; slot < active; slot++) {
         int i = active_indices[slot];
         const double *outputs = batch_out.data() + (size_t)slot * OUT_SZ;
-        moves[slot] = selectValidMove(states[i], outputs, 0);
-        int r = stepFastGameStateMove(states[i], moves[slot], step);
+        moves[slot] = api.selectValidMove(states[i], outputs, 0);
+        int r = api.stepFastGameStateMove(states[i], moves[slot], step);
         if (r > 0) {
           states[i].done = true;
           states[i].result = r;
@@ -1874,13 +1862,13 @@ int AntoninaAPI::solveFitnessBatchImpl(BatchBrain *p, int tests_to_run,
 
     FitnessStats stats;
     for (int i = 0; i < B; i++) {
-      const int case_score = scoreOfFastState(states[i]);
+      const int case_score = api.scoreOfFastState(states[i]);
       if (case_scores)
         case_scores[t_start + i] = case_score;
       if (states[i].result > 0) {
         stats.wins++;
         stats.speed_sum +=
-            std::max(0, STEPS_LIMIT - states[i].result) * SUCCESS_STEP_BONUS;
+            std::max(0, api.STEPS_LIMIT - states[i].result) * SUCCESS_STEP_BONUS;
       } else {
         stats.failures++;
         stats.partial_sum += case_score;
@@ -1909,16 +1897,15 @@ int AntoninaAPI::solveFitnessBatchImpl(BatchBrain *p, int tests_to_run,
 }
 
 int AntoninaAPI::solveFitnessBatch(Perceptron *p, int tests_to_run) {
-  return solveFitnessBatchImpl(p, tests_to_run);
+  return solveFitnessBatchImpl(*this, p, tests_to_run);
 }
 
 int AntoninaAPI::solveFitnessBatch(NeatGenome *p, int tests_to_run) {
-  return solveFitnessBatchImpl(p, tests_to_run);
+  return solveFitnessBatchImpl(*this, p, tests_to_run);
 }
 
-int AntoninaAPI::solveFitnessBatch(NeatGenome *p, int tests_to_run,
-                                   int *case_scores) {
-  return solveFitnessBatchImpl(p, tests_to_run, case_scores);
+int AntoninaAPI::solveFitnessBatch(NeatGenome *p, int tests_to_run, int *case_scores) {
+  return solveFitnessBatchImpl(*this, p, tests_to_run, case_scores);
 }
 
 void AntoninaAPI::demonstrate(Brain *p) {
@@ -2038,9 +2025,7 @@ int AntoninaAPI::countWins(Brain *p, int tests_to_run) {
   return wins;
 }
 
-int AntoninaAPI::collectFailures(Brain *p, int tests_to_run,
-                                 std::vector<int> &failures,
-                                 int max_failures) {
+int AntoninaAPI::collectFailures(Brain *p, int tests_to_run, std::vector<int> &failures, int max_failures) {
   int actual_tests =
       tests_to_run > 0 ? std::min(tests_to_run, ALL_TESTS)
                        : std::min(active_tests, ALL_TESTS);
@@ -2117,7 +2102,7 @@ int AntoninaAPI::traceTest(Brain *p, int test_index, TestTrace &trace) {
     detail.Oy = s.Oy;
     detail.gx = s.gx;
     detail.gy = s.gy;
-    if (s.stone_mask == 0) {
+    if (s.stones == 0) {
       int index = noStoneStateIndex(s.ax, s.ay, s.Ox, s.Oy, s.gx, s.gy);
       detail.solution = noStoneCaches().solution_dist[(size_t)index];
     }
@@ -2148,7 +2133,7 @@ int AntoninaAPI::traceTest(Brain *p, int test_index, TestTrace &trace) {
   trace.min_control = s.min_control;
   trace.min_solution = s.min_solution;
   trace.current_solution = 0;
-  if (s.stone_mask == 0) {
+  if (s.stones == 0) {
     int index = noStoneStateIndex(s.ax, s.ay, s.Ox, s.Oy, s.gx, s.gy);
     trace.current_solution = noStoneCaches().solution_dist[(size_t)index];
   }

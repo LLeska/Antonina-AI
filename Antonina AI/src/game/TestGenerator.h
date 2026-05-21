@@ -5,8 +5,6 @@
 #include <string>
 #include <vector>
 
-namespace TestGenerator {
-
 constexpr int CATEGORY_COUNT = 12;
 
 struct TestCase {
@@ -27,9 +25,5 @@ bool curriculumLess(const TestCase &a, const TestCase &b);
 void orderCurriculum(std::vector<TestCase> &tests);
 std::array<int, CATEGORY_COUNT> categoryCounts(const std::vector<TestCase> &tests);
 std::vector<TestCase> generateBaseTests();
-bool readTests(std::istream &in, std::vector<TestCase> &tests,
-               std::string *error = nullptr, int max_tests = -1);
-bool writeTests(const std::string &file, const std::vector<TestCase> &tests,
-                std::string *error = nullptr);
-
-} 
+bool readTests(std::istream &in, std::vector<TestCase> &tests, std::string *error = nullptr, int max_tests = -1);
+bool writeTests(const std::string &file, const std::vector<TestCase> &tests, std::string *error = nullptr);

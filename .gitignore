@@ -368,3 +368,4 @@ FodyWeavers.xsd
 *.out
 /Antonina AI/test_equiv.cpp
 /Antonina AI/diagnose_neat.cpp
+/Antonina AI/test.csv

@@ -15,64 +15,65 @@ else()
     add_compile_options(-O3 -march=native -Wall)
 endif()
 
-option(ANTONINA_GUI "Build with SFML GUI viewer" ON)
-
-
-if(ANTONINA_GUI)
-    find_package(SFML 3 COMPONENTS Graphics Window System QUIET)
-
-    if(NOT SFML_FOUND)
-        message(STATUS "SFML 3 not found in system, fetching from GitHub...")
-        include(FetchContent)
-        set(SFML_BUILD_AUDIO   OFF CACHE BOOL "" FORCE)
-        set(SFML_BUILD_NETWORK OFF CACHE BOOL "" FORCE)
-        set(BUILD_SHARED_LIBS  ON  CACHE BOOL "" FORCE)
-        FetchContent_Declare(
-            SFML
-            GIT_REPOSITORY https://github.com/SFML/SFML.git
-            GIT_TAG        3.0.0
-            GIT_SHALLOW    TRUE
-        )
-        FetchContent_MakeAvailable(SFML)
-    else()
-        message(STATUS "Using system SFML ${SFML_VERSION}")
-    endif()
+find_package(SFML 3 COMPONENTS Graphics Window System QUIET)
+if(NOT SFML_FOUND)
+    message(STATUS "SFML 3 not found in system, fetching from GitHub...")
+    include(FetchContent)
+    set(SFML_BUILD_AUDIO OFF CACHE BOOL "" FORCE)
+    set(SFML_BUILD_NETWORK OFF CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(SFML GIT_REPOSITORY https://github.com/SFML/SFML.git GIT_TAG 3.0.0 GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(SFML)
+else()
+    message(STATUS "Using system SFML ${SFML_VERSION}")
 endif()
 
+set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+set(PROJECT_INCLUDE_DIRS
+    ${SRC_DIR}/app
+    ${SRC_DIR}/core
+    ${SRC_DIR}/game
+    ${SRC_DIR}/gui
+    ${SRC_DIR}/training
+)
 
 set(CORE_SOURCES
-    Layer.cpp
-    Perceptron.cpp
-    NeuroEvolution.cpp
-    NeatEvolution.cpp
-    TestGenerator.cpp
-    AntoninaAPI.cpp
+    ${SRC_DIR}/core/Layer.cpp
+    ${SRC_DIR}/core/NeatGenome.cpp
+    ${SRC_DIR}/core/NeatInnovation.cpp
+    ${SRC_DIR}/core/Perceptron.cpp
+    ${SRC_DIR}/game/AntoninaAPI.cpp
+    ${SRC_DIR}/game/TestGenerator.cpp
+    ${SRC_DIR}/training/NeatEvolution.cpp
+    ${SRC_DIR}/training/NeuroEvolution.cpp
+    ${SRC_DIR}/training/TestWeightTable.cpp
+    ${SRC_DIR}/training/ThreadPool.cpp
+    ${SRC_DIR}/training/TrainingSettings.cpp
+    ${SRC_DIR}/training/TrainingSettingsJson.cpp
+    ${SRC_DIR}/training/TrainingUtils.cpp
 )
 
 set(GUI_SOURCES
-    Viewer.cpp
+    ${SRC_DIR}/gui/ScopedViewerLogRedirect.cpp
+    ${SRC_DIR}/gui/Viewer.cpp
+    ${SRC_DIR}/gui/ViewerLogStreamBuf.cpp
 )
 
 add_executable(antonina_ai
     ${CORE_SOURCES}
-    main.cpp
+    ${GUI_SOURCES}
+    ${SRC_DIR}/app/main.cpp
 )
-
-if(ANTONINA_GUI)
-    target_sources(antonina_ai PRIVATE ${GUI_SOURCES})
-    target_link_libraries(antonina_ai PRIVATE SFML::Graphics SFML::Window SFML::System)
-    set_target_properties(antonina_ai PROPERTIES WIN32_EXECUTABLE TRUE)
-    if(MSVC)
-        target_link_options(antonina_ai PRIVATE /ENTRY:mainCRTStartup)
-    endif()
-else()
-    target_compile_definitions(antonina_ai PRIVATE NO_GUI=1)
+target_include_directories(antonina_ai PRIVATE ${PROJECT_INCLUDE_DIRS})
+find_package(Threads REQUIRED)
+target_link_libraries(antonina_ai PRIVATE Threads::Threads SFML::Graphics SFML::Window SFML::System)
+set_target_properties(antonina_ai PROPERTIES WIN32_EXECUTABLE TRUE)
+if(MSVC)
+    target_link_options(antonina_ai PRIVATE /ENTRY:mainCRTStartup)
 endif()
 
-find_package(Threads REQUIRED)
-target_link_libraries(antonina_ai PRIVATE Threads::Threads)
-
-if(WIN32 AND ANTONINA_GUI AND TARGET SFML::Graphics)
+if(WIN32 AND TARGET SFML::Graphics)
     add_custom_command(TARGET antonina_ai POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 $<TARGET_RUNTIME_DLLS:antonina_ai> $<TARGET_FILE_DIR:antonina_ai>
@@ -80,22 +81,8 @@ if(WIN32 AND ANTONINA_GUI AND TARGET SFML::Graphics)
     )
 endif()
 
-
-add_executable(test_equiv
-    ${CORE_SOURCES}
-    test_equiv.cpp
-)
-target_link_libraries(test_equiv PRIVATE Threads::Threads)
-target_compile_definitions(test_equiv PRIVATE NO_GUI=1)
-
-add_executable(diagnose_neat
-    ${CORE_SOURCES}
-    diagnose_neat.cpp
-)
-target_link_libraries(diagnose_neat PRIVATE Threads::Threads)
-target_compile_definitions(diagnose_neat PRIVATE NO_GUI=1)
-
 add_executable(generate_tests
-    TestGenerator.cpp
-    generate_tests.cpp
+    ${SRC_DIR}/game/TestGenerator.cpp
+    ${SRC_DIR}/app/generate_tests.cpp
 )
+target_include_directories(generate_tests PRIVATE ${PROJECT_INCLUDE_DIRS})
